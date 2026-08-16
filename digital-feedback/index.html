@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="A lightweight Blockly simulator for digital line-following and contact-switch feedback activities."
+    />
+    <title>CVS Digital Feedback</title>
+    <link rel="icon" href="./assets/stormy.png" type="image/png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="app-header">
+        <a class="brand" href="../" aria-label="Back to CVS Robotics Lab">
+          <span class="brand-mark" aria-hidden="true">
+            <img src="./assets/stormy.png" alt="" />
+          </span>
+          <span>
+            <span class="eyebrow">← CVS ROBOTICS LAB · DIGITAL V3</span>
+            <span class="brand-title">CVS DIGITAL FEEDBACK</span>
+          </span>
+        </a>
+        <label class="activity-control" for="activity-selector">
+          <span>Activity</span>
+          <select id="activity-selector">
+            <option value="line-follower">Line Follower</option>
+            <option value="contact-switch">Contact Switch</option>
+          </select>
+        </label>
+        <div class="header-status" aria-live="polite">
+          <span id="run-dot" class="run-dot"></span>
+          <span id="run-state">READY</span>
+        </div>
+      </header>
+
+      <main class="lab-layout">
+        <section class="panel code-panel" aria-labelledby="code-heading">
+          <div class="panel-heading code-heading-row">
+            <div>
+              <p class="section-kicker">PROGRAM</p>
+              <h1 id="code-heading">Build the feedback loop</h1>
+            </div>
+            <p class="heading-note">Drag blocks, then run.</p>
+          </div>
+
+          <div class="program-toolbar" role="toolbar" aria-label="Program controls">
+            <div class="button-group button-group-primary">
+              <button id="run-button" class="button button-run" type="button">
+                <span class="button-icon" aria-hidden="true">▶</span> RUN
+              </button>
+              <button id="stop-button" class="button" type="button">
+                <span class="button-icon" aria-hidden="true">■</span> STOP
+              </button>
+              <button id="reset-button" class="button" type="button">
+                <span class="button-icon" aria-hidden="true">↺</span> RESET
+              </button>
+            </div>
+            <div class="toolbar-rule" aria-hidden="true"></div>
+            <div class="button-group">
+              <button id="save-button" class="button button-quiet" type="button">SAVE</button>
+              <button id="load-button" class="button button-quiet" type="button">LOAD</button>
+              <button id="export-button" class="button button-quiet" type="button">EXPORT</button>
+              <button id="import-button" class="button button-quiet" type="button">IMPORT</button>
+              <input id="import-file-input" type="file" accept=".json,application/json" hidden />
+              <button id="clear-button" class="button button-danger" type="button">CLEAR</button>
+            </div>
+          </div>
+
+          <div id="blockly-host" class="blockly-host">
+            <div id="blockly-div" aria-label="Blockly programming workspace"></div>
+            <div id="blockly-error" class="blockly-error" hidden>
+              <strong>Blockly could not load.</strong>
+              <span>Check your connection, then refresh the page.</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel simulation-panel" aria-labelledby="field-heading">
+          <div class="panel-heading field-heading-row">
+            <div>
+              <p id="simulation-kicker" class="section-kicker">LINE FOLLOWING FIELD</p>
+              <h2 id="field-heading">Digital track</h2>
+            </div>
+            <div id="track-actions" class="track-actions">
+              <button id="edit-track-button" class="button button-quiet" type="button">DRAW / EDIT TRACK</button>
+              <button id="reset-track-button" class="button button-quiet" type="button">RESET TRACK</button>
+            </div>
+          </div>
+
+          <div id="configuration-bar" class="configuration-bar">
+            <details id="sensor-setup" class="sensor-setup">
+              <summary>SENSOR SETUP</summary>
+              <div class="sensor-setup-popover">
+                <div class="sensor-setup-heading">
+                  <span>SENSOR SETUP</span>
+                  <small>Emitter stays centered</small>
+                </div>
+
+                <section class="mount-setup" data-mount="front">
+                  <div class="mount-setup-title">
+                    <h3>FRONT SENSORS</h3>
+                    <div class="mount-mode" role="radiogroup" aria-label="Front sensor arrangement">
+                      <label><input type="radio" name="front-mode" value="none" /><span>None</span></label>
+                      <label><input type="radio" name="front-mode" value="single" checked /><span>Single</span></label>
+                      <label><input type="radio" name="front-mode" value="dual" /><span>Dual</span></label>
+                    </div>
+                  </div>
+                  <label class="mount-slider" data-control="offset">
+                    <span>Front Offset</span>
+                    <input id="front-offset" type="range" min="30" max="76" value="42" step="1" />
+                    <output id="front-offset-value" for="front-offset">42</output>
+                  </label>
+                  <label class="mount-slider" data-control="spacing">
+                    <span>Front Spacing</span>
+                    <input id="front-spacing" type="range" min="24" max="72" value="42" step="2" disabled />
+                    <output id="front-spacing-value" for="front-spacing">42</output>
+                  </label>
+                </section>
+
+                <section class="mount-setup" data-mount="rear">
+                  <div class="mount-setup-title">
+                    <h3>REAR SENSORS</h3>
+                    <div class="mount-mode" role="radiogroup" aria-label="Rear sensor arrangement">
+                      <label><input type="radio" name="rear-mode" value="none" checked /><span>None</span></label>
+                      <label><input type="radio" name="rear-mode" value="single" /><span>Single</span></label>
+                      <label><input type="radio" name="rear-mode" value="dual" /><span>Dual</span></label>
+                    </div>
+                  </div>
+                  <label class="mount-slider is-disabled" data-control="offset">
+                    <span>Rear Offset</span>
+                    <input id="rear-offset" type="range" min="30" max="76" value="42" step="1" disabled />
+                    <output id="rear-offset-value" for="rear-offset">42</output>
+                  </label>
+                  <label class="mount-slider is-disabled" data-control="spacing">
+                    <span>Rear Spacing</span>
+                    <input id="rear-spacing" type="range" min="24" max="72" value="42" step="2" disabled />
+                    <output id="rear-spacing-value" for="rear-spacing">42</output>
+                  </label>
+                </section>
+              </div>
+            </details>
+            <div id="tape-key" class="tape-key" aria-label="Sensor key">
+              <span><i class="key-swatch key-white"></i>WHITE = ON</span>
+              <span><i class="key-swatch key-black"></i>BLACK / FIELD = OFF</span>
+            </div>
+            <div id="contact-help" class="contact-help" hidden>
+              <span>DRAG THE STRIPED CONTACT STOP</span>
+              <span><i class="key-swatch key-contact"></i>TOUCHING = ON</span>
+            </div>
+          </div>
+
+          <div class="field-wrap">
+            <canvas
+              id="field-canvas"
+              width="800"
+              height="700"
+              aria-label="Digital feedback simulation field"
+            ></canvas>
+            <div id="edit-hint" class="edit-hint" hidden>Drag a handle, or draw anywhere to replace the path.</div>
+          </div>
+
+          <div class="telemetry-grid">
+            <section class="status-card sensor-card" aria-labelledby="sensor-status-heading">
+              <div class="status-card-heading">
+                <span id="sensor-status-heading">DIGITAL SENSORS</span>
+                <span id="sensor-mode-badge" class="mini-badge">F:SINGLE · R:NONE</span>
+              </div>
+              <div id="line-sensor-status" class="line-sensor-status"></div>
+              <div id="contact-sensor-readout" class="sensor-readout" hidden>
+                <div id="contact-indicator" class="sensor-indicator" aria-hidden="true"></div>
+                <div>
+                  <span class="readout-label">CONTACT SWITCH</span>
+                  <strong id="contact-value">OFF</strong>
+                </div>
+              </div>
+            </section>
+
+            <section class="status-card motion-card" aria-labelledby="motion-status-heading">
+              <div class="status-card-heading">
+                <span id="motion-status-heading">MOTION</span>
+                <span id="drive-action" class="mini-badge">STOPPED</span>
+              </div>
+              <div class="motion-values">
+                <span>L <strong id="left-output">0%</strong></span>
+                <span>R <strong id="right-output">0%</strong></span>
+                <span>DRIVE <strong id="drive-speed">50%</strong></span>
+                <span>TURN <strong id="turn-speed">30%</strong></span>
+              </div>
+              <div class="pose-row">
+                <span>x <strong id="pose-x">0</strong></span>
+                <span>y <strong id="pose-y">0</strong></span>
+                <span>heading <strong id="pose-heading">0°</strong></span>
+              </div>
+            </section>
+
+            <section class="status-card output-card" aria-labelledby="output-heading">
+              <div class="status-card-heading">
+                <span id="output-heading">OUTPUT</span>
+                <button id="clear-output-button" class="text-button" type="button">CLEAR</button>
+              </div>
+              <div id="output-console" class="output-console" role="log" aria-live="polite">
+                <span class="console-placeholder">Program output appears here.</span>
+              </div>
+            </section>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="https://unpkg.com/blockly@12.5.1/blockly.min.js"></script>
+    <script src="https://unpkg.com/blockly@12.5.1/msg/en.js"></script>
+    <script src="./track.js"></script>
+    <script src="./robot.js"></script>
+    <script src="./sensors.js"></script>
+    <script src="./activities/lineFollower.js"></script>
+    <script src="./activities/contactSwitch.js"></script>
+    <script src="./blocks.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>

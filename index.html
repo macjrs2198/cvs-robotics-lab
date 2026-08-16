@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Launch the CVS Digital Feedback, AI Vision, and Analog Feedback robotics simulators."
+    />
+    <title>CVS Robotics Lab</title>
+    <link rel="icon" href="./assets/stormy.png" type="image/png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="launcher-shell">
+      <header class="launcher-header">
+        <img class="stormy-mark" src="./assets/stormy.png" alt="Stormy tornado mascot" />
+        <div>
+          <p class="eyebrow">CVS · CAREER &amp; TECHNICAL EDUCATION</p>
+          <h1>CVS Robotics Lab</h1>
+          <p class="intro">Choose a simulator to begin.</p>
+        </div>
+      </header>
+
+      <section class="launch-grid" aria-label="Robotics simulators">
+        <a class="launch-card launch-card--digital" href="./digital-feedback/">
+          <span class="card-index">01 · DIGITAL</span>
+          <h2>CVS Digital Feedback</h2>
+          <p>Digital sensors, line following, and autonomous feedback</p>
+          <span class="launch-action">Launch simulator <span aria-hidden="true">→</span></span>
+        </a>
+
+        <a class="launch-card launch-card--vision" href="./ai-vision/">
+          <span class="card-index">02 · VISION</span>
+          <h2>CVS AI Vision</h2>
+          <p>Machine vision and autonomous sensor response</p>
+          <span class="launch-action">Launch simulator <span aria-hidden="true">→</span></span>
+        </a>
+
+        <a class="launch-card launch-card--analog" href="./analog-feedback/">
+          <span class="card-index">03 · ANALOG</span>
+          <h2>CVS Analog Feedback</h2>
+          <p>Potentiometers, motor control, and position feedback</p>
+          <span class="launch-action">Launch simulator <span aria-hidden="true">→</span></span>
+        </a>
+      </section>
+
+      <footer class="launcher-footer">
+        <span>SAVE / LOAD · THIS DEVICE</span>
+        <span>EXPORT / IMPORT · PORTABLE PROJECT FILE</span>
+      </footer>
+    </main>
+  </body>
+</html>

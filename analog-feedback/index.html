@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="A lightweight Blockly robot-arm simulator for MC55-style motor control and raw potentiometer feedback."
+    />
+    <title>CVS Analog Feedback</title>
+    <link rel="icon" href="./assets/stormy.png" type="image/png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="app-header">
+        <a class="brand" href="../" aria-label="Back to CVS Robotics Lab">
+          <span class="brand-mark" aria-hidden="true"><img src="./assets/stormy.png" alt="" /></span>
+          <span>
+            <span class="eyebrow">← CVS ROBOTICS LAB · ANALOG V1</span>
+            <span class="brand-title">CVS ANALOG FEEDBACK</span>
+          </span>
+        </a>
+
+        <fieldset class="joint-selector" aria-label="Arm configuration">
+          <legend>ARM CONFIGURATION · JOINTS</legend>
+          <div class="segment-group">
+            <label><input type="radio" name="joint-count" value="1" checked /><span>1</span></label>
+            <label><input type="radio" name="joint-count" value="2" /><span>2</span></label>
+            <label><input type="radio" name="joint-count" value="3" /><span>3</span></label>
+          </div>
+        </fieldset>
+
+        <div class="header-status" aria-live="polite">
+          <span class="run-dot" aria-hidden="true"></span>
+          <span id="run-state">READY</span>
+        </div>
+      </header>
+
+      <main class="lab-layout">
+        <section class="panel code-panel" aria-labelledby="program-heading">
+          <div class="panel-heading code-heading-row">
+            <div>
+              <p class="section-kicker">BLOCK PROGRAM</p>
+              <h1 id="program-heading">Close the analog loop</h1>
+            </div>
+            <p class="heading-note">Raw value → decision → motor → motion</p>
+          </div>
+
+          <div class="program-toolbar" role="toolbar" aria-label="Program controls">
+            <div class="button-group button-group-primary">
+              <button id="run-button" class="button button-run" type="button"><span aria-hidden="true">▶</span> RUN</button>
+              <button id="stop-button" class="button" type="button"><span aria-hidden="true">■</span> STOP</button>
+              <button id="reset-button" class="button" type="button"><span aria-hidden="true">↺</span> RESET</button>
+            </div>
+            <div class="toolbar-rule" aria-hidden="true"></div>
+            <div class="button-group">
+              <button id="save-button" class="button button-quiet" type="button">SAVE</button>
+              <button id="load-button" class="button button-quiet" type="button">LOAD</button>
+              <button id="export-button" class="button button-quiet" type="button">EXPORT</button>
+              <button id="import-button" class="button button-quiet" type="button">IMPORT</button>
+              <input id="import-file-input" type="file" accept=".json,application/json" hidden />
+              <button id="clear-button" class="button button-danger" type="button">CLEAR</button>
+            </div>
+          </div>
+
+          <div id="blockly-host" class="blockly-host">
+            <div id="blockly-div" aria-label="Blockly programming workspace"></div>
+            <div id="blockly-error" class="blockly-error" hidden>
+              <strong>Blockly could not load.</strong>
+              <span>Check your connection, then refresh the page.</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel simulation-panel" aria-labelledby="arm-heading">
+          <div class="panel-heading simulation-heading-row">
+            <div>
+              <p class="section-kicker">ROBOT ARM ACTIVITY</p>
+              <h2 id="arm-heading">Potentiometer feedback</h2>
+            </div>
+            <details id="calibration-details" class="calibration-details">
+              <summary>CALIBRATION</summary>
+              <div class="calibration-popover">
+                <div class="calibration-heading">
+                  <div><span>SETUP</span><strong>Mechanical & raw limits</strong></div>
+                  <small>Values apply immediately.</small>
+                </div>
+                <div id="calibration-grid" class="calibration-grid"></div>
+              </div>
+            </details>
+          </div>
+
+          <div class="arm-field-wrap">
+            <canvas
+              id="arm-canvas"
+              width="800"
+              height="700"
+              aria-label="Side-view simulated robot arm with one movable object and a destination"
+            ></canvas>
+            <div class="field-legend" aria-hidden="true">
+              <span><i class="legend-dot legend-object"></i>OBJECT</span>
+              <span><i class="legend-dot legend-zone"></i>DROP ZONE</span>
+            </div>
+            <div id="task-complete" class="task-complete" hidden>TASK COMPLETE</div>
+          </div>
+
+          <div class="telemetry-panel">
+            <div id="instrumentation-grid" class="instrumentation-grid" aria-label="Live actuator instrumentation"></div>
+            <section class="output-strip" aria-labelledby="output-heading">
+              <div class="output-heading">
+                <span id="output-heading">OUTPUT</span>
+                <button id="clear-output-button" class="text-button" type="button">CLEAR</button>
+              </div>
+              <div id="output-console" class="output-console" role="log" aria-live="polite">
+                <span class="console-placeholder">Program output appears here.</span>
+              </div>
+            </section>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="https://unpkg.com/blockly@12.5.1/blockly.min.js"></script>
+    <script src="https://unpkg.com/blockly@12.5.1/msg/en.js"></script>
+    <script src="./motors.js"></script>
+    <script src="./analog.js"></script>
+    <script src="./arm.js"></script>
+    <script src="./objects.js"></script>
+    <script src="./blocks.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>

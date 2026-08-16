@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#f4f6f5">
+    <meta
+      name="description"
+      content="A browser-based Blockly simulator for learning how to use AI vision sensor data and drivetrain commands."
+    >
+    <title>CVS AI Vision Simulator</title>
+    <link rel="icon" href="./assets/stormy.png" type="image/png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap"
+      rel="stylesheet"
+    >
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <img class="stormy-watermark" src="./assets/stormy.png" alt="" aria-hidden="true">
+    <header class="app-header">
+      <a class="brand-lockup" href="../" aria-label="Back to CVS Robotics Lab">
+        <img class="brand-mascot" src="./assets/stormy.png" alt="Stormy tornado mascot">
+        <div>
+          <p class="eyebrow">← CVS ROBOTICS LAB · AI VISION V1</p>
+          <h1>CVS AI VISION</h1>
+        </div>
+      </a>
+      <div class="program-state" aria-live="polite">
+        <span id="state-dot" class="state-dot" aria-hidden="true"></span>
+        <span id="program-state-text">Program stopped</span>
+      </div>
+    </header>
+
+    <main class="workbench">
+      <section class="workspace-panel" aria-labelledby="program-heading">
+        <div class="panel-heading">
+          <div>
+            <p class="section-label">BLOCK PROGRAM</p>
+            <h2 id="program-heading">Program the sensor response</h2>
+          </div>
+          <p id="save-status" class="save-status" role="status" aria-live="polite"></p>
+        </div>
+
+        <div class="toolbar" aria-label="Program controls">
+          <div class="button-group">
+            <button id="run-button" class="button button--run" type="button">Run</button>
+            <button id="stop-button" class="button" type="button">Stop</button>
+            <button id="reset-button" class="button" type="button">Reset</button>
+          </div>
+          <div class="button-divider" aria-hidden="true"></div>
+          <div class="button-group button-group--files">
+            <button id="save-button" class="button button--quiet" type="button" aria-label="Save Program" title="Save in this browser/device">Save</button>
+            <button id="load-button" class="button button--quiet" type="button" aria-label="Load Program" title="Load from this browser/device">Load</button>
+            <button id="export-button" class="button button--quiet" type="button" aria-label="Export Program" title="Download a portable program file">Export</button>
+            <button id="import-button" class="button button--quiet" type="button" aria-label="Import Program" title="Load a portable program file">Import</button>
+            <input id="import-file-input" type="file" accept=".json,application/json" hidden>
+            <button id="clear-button" class="button button--danger" type="button" aria-label="Clear Program">Clear</button>
+          </div>
+        </div>
+
+        <div id="blockly-host" class="blockly-host">
+          <div id="blockly-div" aria-label="Blockly programming workspace"></div>
+          <p id="blockly-error" class="blockly-error" hidden>
+            Blockly could not load. Check the internet connection and refresh the page.
+          </p>
+        </div>
+      </section>
+
+      <aside class="sensor-panel" aria-labelledby="camera-heading">
+        <section class="camera-section">
+          <div class="section-heading-row">
+            <div>
+              <p class="section-label">SIMULATED CAMERA · 320 × 240</p>
+              <h2 id="camera-heading">Camera view</h2>
+            </div>
+            <span class="drag-hint">Drag target</span>
+          </div>
+
+          <div id="camera-view" class="camera-view" aria-label="Simulated AI Vision camera view">
+            <span class="camera-corner camera-corner--top-left" aria-hidden="true"></span>
+            <span class="camera-corner camera-corner--top-right" aria-hidden="true"></span>
+            <span class="camera-corner camera-corner--bottom-left" aria-hidden="true"></span>
+            <span class="camera-corner camera-corner--bottom-right" aria-hidden="true"></span>
+            <span class="camera-crosshair camera-crosshair--horizontal" aria-hidden="true"></span>
+            <span class="camera-crosshair camera-crosshair--vertical" aria-hidden="true"></span>
+            <div
+              id="vision-target"
+              class="vision-target"
+              role="img"
+              aria-label="Draggable target, object ID 1"
+            >
+              <span>1</span>
+            </div>
+            <span class="camera-axis camera-axis--x" aria-hidden="true">X 0–320</span>
+            <span class="camera-axis camera-axis--y" aria-hidden="true">Y 0–240</span>
+          </div>
+        </section>
+
+        <section class="data-section" aria-labelledby="data-heading">
+          <div class="data-heading-row">
+            <p id="data-heading" class="section-label">AI VISION DATA</p>
+            <div class="drivetrain-status is-stopped" role="status" aria-live="polite">
+              <span>DRIVE</span>
+              <strong id="drivetrain-status-value">STOPPED &mdash; L 0% &middot; R 0%</strong>
+            </div>
+          </div>
+          <dl class="sensor-data">
+            <div><dt>Exists</dt><dd id="data-exists">TRUE</dd></div>
+            <div><dt>Center X</dt><dd id="data-center-x">160</dd></div>
+            <div><dt>Center Y</dt><dd id="data-center-y">120</dd></div>
+            <div><dt>Width</dt><dd id="data-width">40</dd></div>
+            <div><dt>Height</dt><dd id="data-height">40</dd></div>
+            <div><dt>ID</dt><dd id="data-id">1</dd></div>
+            <div><dt>Confidence</dt><dd id="data-confidence">100</dd></div>
+          </dl>
+        </section>
+
+        <section class="console-section" aria-labelledby="console-heading">
+          <p id="console-heading" class="section-label">PROGRAM OUTPUT</p>
+          <div id="output-console" class="output-console" role="log" aria-live="polite" aria-relevant="additions">
+            <p id="console-placeholder" class="console-placeholder">Printed values will appear here.</p>
+          </div>
+        </section>
+      </aside>
+    </main>
+
+    <script src="https://unpkg.com/blockly@12.5.1/blockly.min.js"></script>
+    <script src="https://unpkg.com/blockly@12.5.1/msg/en.js"></script>
+    <script src="./simulator.js"></script>
+    <script src="./drivetrain.js"></script>
+    <script src="./blocks.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>
