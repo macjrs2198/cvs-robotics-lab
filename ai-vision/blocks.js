@@ -198,7 +198,7 @@
       message0: "object confidence",
       output: "Number",
       colour: COLORS.vision,
-      tooltip: "Detection confidence from 0 to 100. Version 1 always returns 100.",
+      tooltip: "Detection confidence is 100 while the target is visible and 0 when it is not detected.",
       helpUrl: ""
     },
     {

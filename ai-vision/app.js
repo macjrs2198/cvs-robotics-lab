@@ -5,7 +5,7 @@
   const PROGRAM_FORMAT = "cvs-robotics-program";
   const PROGRAM_FORMAT_VERSION = 1;
   const APP_ID = "cvs-ai-vision";
-  const APP_VERSION = "1.0";
+  const APP_VERSION = "1.1";
   const APP_DISPLAY_NAME = "CVS AI Vision";
   const APP_DISPLAY_NAMES = Object.freeze({
     "cvs-ai-vision": APP_DISPLAY_NAME,
@@ -283,7 +283,7 @@
 
   function resetSimulator() {
     stopProgram();
-    window.VisionSimulator.resetTarget();
+    window.VisionSimulator.resetWorld();
     clearOutput();
     showSaveStatus("Simulator reset");
   }
@@ -405,7 +405,7 @@
       workspace.clear();
       Blockly.serialization.workspaces.load(programFile.workspace, workspace);
       restoreProgramSettings(programFile.settings);
-      window.VisionSimulator.resetTarget();
+      window.VisionSimulator.resetWorld();
       clearOutput();
       showSaveStatus("Portable program imported");
     } catch (error) {
