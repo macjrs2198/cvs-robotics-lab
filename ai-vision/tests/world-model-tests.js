@@ -1,7 +1,7 @@
 "use strict";
 
 const assert = require("assert");
-const model = require("../world.js");
+const model = require("../simulator.js");
 
 function drive(leftOutput, rightOutput) {
   return { leftOutput, rightOutput };
