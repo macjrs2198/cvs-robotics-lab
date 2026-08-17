@@ -5,7 +5,7 @@
   const PROGRAM_FORMAT = "cvs-robotics-program";
   const PROGRAM_FORMAT_VERSION = 1;
   const APP_ID = "cvs-ai-vision";
-  const APP_VERSION = "1.1";
+  const APP_VERSION = "2.0";
   const APP_DISPLAY_NAME = "CVS AI Vision";
   const APP_DISPLAY_NAMES = Object.freeze({
     "cvs-ai-vision": APP_DISPLAY_NAME,
@@ -16,9 +16,11 @@
   const MAX_CONSOLE_LINES = 80;
 
   let workspace = null;
-  let activeRunId = 0;
   let running = false;
+  let programControl = null;
+  let blockLibrary = null;
   let saveStatusTimer = null;
+  const variables = new Map();
 
   const elements = {};
 
@@ -26,6 +28,7 @@
     elements.programState = document.querySelector(".program-state");
     elements.programStateText = document.getElementById("program-state-text");
     elements.runButton = document.getElementById("run-button");
+    elements.pauseButton = document.getElementById("pause-button");
     elements.stopButton = document.getElementById("stop-button");
     elements.resetButton = document.getElementById("reset-button");
     elements.saveButton = document.getElementById("save-button");
@@ -47,14 +50,23 @@
     elements.dataConfidence = document.getElementById("data-confidence");
     elements.drivetrainStatus = document.querySelector(".drivetrain-status");
     elements.drivetrainStatusValue = document.getElementById("drivetrain-status-value");
+    elements.blockLibraryButton = document.getElementById("block-library-button");
+    elements.blockLibraryDialog = document.getElementById("block-library-dialog");
+    elements.blockLibraryList = document.getElementById("block-library-list");
+    elements.blockLibraryClose = document.getElementById("block-library-close");
   }
 
-  function setProgramState(isRunning) {
-    running = isRunning;
-    elements.programState.classList.toggle("is-running", isRunning);
-    elements.programStateText.textContent = isRunning ? "Program running" : "Program stopped";
-    elements.runButton.disabled = isRunning;
-    elements.stopButton.disabled = !isRunning;
+  function renderProgramState(state) {
+    running = !state.stopped;
+    elements.programState.classList.toggle("is-running", state.running);
+    elements.programState.classList.toggle("is-paused", state.paused);
+    elements.programStateText.textContent = state.paused
+      ? "Program paused"
+      : state.running ? "Program running" : "Program stopped";
+    elements.runButton.disabled = !state.stopped;
+    elements.pauseButton.disabled = state.stopped;
+    elements.pauseButton.textContent = state.paused ? "Resume" : "Pause";
+    elements.stopButton.disabled = state.stopped;
   }
 
   function showSaveStatus(message) {
@@ -121,18 +133,26 @@
     elements.outputConsole.scrollTop = elements.outputConsole.scrollHeight;
   }
 
-  function stopProgram() {
-    activeRunId += 1;
-    setProgramState(false);
-    window.Drivetrain.stop();
+  function stopProgram(reason = "stopped") {
+    if (programControl) programControl.stop(reason);
   }
 
-  function delay(milliseconds) {
-    return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+  function togglePause() {
+    if (!programControl) return;
+    if (programControl.isPaused()) programControl.resume();
+    else programControl.pause();
+  }
+
+  function delay(milliseconds, runId) {
+    return programControl.delay(milliseconds, runId);
   }
 
   function inputBlock(block, inputName) {
     return block.getInputTargetBlock(inputName);
+  }
+
+  function variableKey(block) {
+    return block.getFieldValue("VAR") || "value";
   }
 
   function evaluateValue(block) {
@@ -155,6 +175,38 @@
         return window.visionSensor.id;
       case "vision_confidence":
         return window.visionSensor.confidence;
+      case "math_number":
+        return Number(block.getFieldValue("NUM")) || 0;
+      case "variables_get":
+        return variables.get(variableKey(block)) ?? 0;
+      case "math_arithmetic": {
+        const left = Number(evaluateValue(inputBlock(block, "A"))) || 0;
+        const right = Number(evaluateValue(inputBlock(block, "B"))) || 0;
+        const operation = block.getFieldValue("OP");
+        if (operation === "MINUS") return left - right;
+        if (operation === "MULTIPLY") return left * right;
+        if (operation === "DIVIDE") return right === 0 ? 0 : left / right;
+        return left + right;
+      }
+      case "logic_compare": {
+        const left = evaluateValue(inputBlock(block, "A"));
+        const right = evaluateValue(inputBlock(block, "B"));
+        const operation = block.getFieldValue("OP");
+        if (operation === "NEQ") return left !== right;
+        if (operation === "LT") return Number(left) < Number(right);
+        if (operation === "LTE") return Number(left) <= Number(right);
+        if (operation === "GT") return Number(left) > Number(right);
+        if (operation === "GTE") return Number(left) >= Number(right);
+        return left === right;
+      }
+      case "logic_operation":
+        return block.getFieldValue("OP") === "OR"
+          ? Boolean(evaluateValue(inputBlock(block, "A"))) || Boolean(evaluateValue(inputBlock(block, "B")))
+          : Boolean(evaluateValue(inputBlock(block, "A"))) && Boolean(evaluateValue(inputBlock(block, "B")));
+      case "logic_negate":
+        return !Boolean(evaluateValue(inputBlock(block, "BOOL")));
+      case "logic_boolean":
+        return block.getFieldValue("BOOL") === "TRUE";
       case "logic_equals":
         return Number(evaluateValue(inputBlock(block, "LEFT"))) === Number(block.getFieldValue("RIGHT"));
       case "logic_less_than":
@@ -175,19 +227,45 @@
   async function executeStatementChain(firstBlock, runId) {
     let block = firstBlock;
 
-    while (block && running && runId === activeRunId) {
+    while (block && programControl.isActive(runId)) {
+      if (!(await programControl.waitWhilePaused(runId))) return;
       if (block.isEnabled() === false) {
         block = block.getNextBlock();
         continue;
       }
 
       switch (block.type) {
+        case "core_forever":
         case "control_forever":
-          while (running && runId === activeRunId) {
+          while (programControl.isActive(runId)) {
             await executeStatementChain(inputBlock(block, "DO"), runId);
-            await delay(FOREVER_DELAY_MS);
+            await delay(FOREVER_DELAY_MS, runId);
           }
           return;
+        case "controls_repeat_ext": {
+          const repeatCount = Math.max(0, Math.floor(Number(evaluateValue(inputBlock(block, "TIMES"))) || 0));
+          for (let index = 0; index < repeatCount && programControl.isActive(runId); index += 1) {
+            await executeStatementChain(inputBlock(block, "DO"), runId);
+            await programControl.yieldControl(runId);
+          }
+          break;
+        }
+        case "core_wait_seconds":
+          await delay(Math.max(0, Number(evaluateValue(inputBlock(block, "SECONDS"))) || 0) * 1000, runId);
+          break;
+        case "core_wait_until":
+          await programControl.waitUntil(
+            () => Boolean(evaluateValue(inputBlock(block, "CONDITION"))),
+            runId,
+          );
+          break;
+        case "controls_if":
+          if (Boolean(evaluateValue(inputBlock(block, "IF0")))) {
+            await executeStatementChain(inputBlock(block, "DO0"), runId);
+          } else {
+            await executeStatementChain(inputBlock(block, "ELSE"), runId);
+          }
+          break;
         case "control_if":
           if (Boolean(evaluateValue(inputBlock(block, "CONDITION")))) {
             await executeStatementChain(inputBlock(block, "DO"), runId);
@@ -200,9 +278,23 @@
             await executeStatementChain(inputBlock(block, "ELSE"), runId);
           }
           break;
+        case "variables_set":
+          variables.set(variableKey(block), evaluateValue(inputBlock(block, "VALUE")));
+          break;
+        case "math_change":
+          variables.set(
+            variableKey(block),
+            Number(variables.get(variableKey(block)) || 0) + Number(evaluateValue(inputBlock(block, "DELTA")) || 0),
+          );
+          break;
+        case "core_stop_program":
+          stopProgram("stop program");
+          return;
+        case "core_print_text":
         case "output_print_text":
           printToConsole(block.getFieldValue("TEXT"));
           break;
+        case "core_print_value":
         case "output_print_value":
           printToConsole(evaluateValue(inputBlock(block, "VALUE")));
           break;
@@ -251,40 +343,40 @@
   }
 
   async function runProgram() {
-    stopProgram();
+    stopProgram("ready");
     clearOutput();
+    variables.clear();
 
     const startBlocks = workspace
       .getTopBlocks(true)
-      .filter((block) => block.type === "event_when_started" && block.isEnabled() !== false);
+      .filter((block) => ["core_when_started", "event_when_started"].includes(block.type) && block.isEnabled() !== false);
 
     if (startBlocks.length === 0) {
       printToConsole("Add a When Started block to run your program.", true);
       return;
     }
 
-    const runId = activeRunId;
-    setProgramState(true);
+    const runId = programControl.run();
     try {
       await Promise.all(
         startBlocks.map((startBlock) => executeStatementChain(startBlock.getNextBlock(), runId))
       );
     } catch (error) {
-      if (runId === activeRunId) {
+      if (programControl.isActive(runId)) {
         printToConsole("The program stopped because a block could not be executed.", true);
         console.error(error);
       }
     } finally {
-      if (runId === activeRunId) {
-        stopProgram();
-      }
+      programControl.complete(runId);
     }
   }
 
   function resetSimulator() {
-    stopProgram();
-    window.VisionSimulator.resetWorld();
-    clearOutput();
+    programControl.reset(() => {
+      window.VisionSimulator.resetWorld();
+      variables.clear();
+      clearOutput();
+    });
     showSaveStatus("Simulator reset");
   }
 
@@ -433,13 +525,15 @@
   function disableProgramButtons() {
     [
       elements.runButton,
+      elements.pauseButton,
       elements.stopButton,
       elements.resetButton,
       elements.saveButton,
       elements.loadButton,
       elements.exportButton,
       elements.importButton,
-      elements.clearButton
+      elements.clearButton,
+      elements.blockLibraryButton
     ].forEach((button) => {
       button.disabled = true;
     });
@@ -453,8 +547,20 @@
     }
 
     try {
-      workspace = window.VisionBlocks.createWorkspace("blockly-div");
+      const packs = window.VisionBlocks.getPacks();
+      const preferences = window.CVSCoreToolbox.readPreferences(APP_ID, packs);
+      workspace = window.VisionBlocks.createWorkspace("blockly-div", preferences);
       window.VisionBlocks.addStarterBlock(workspace);
+      blockLibrary = window.CVSCoreToolbox.setup({
+        appId: APP_ID,
+        packs,
+        workspace,
+        getToolbox: (nextPreferences) => window.VisionBlocks.getToolbox(nextPreferences),
+        button: elements.blockLibraryButton,
+        dialog: elements.blockLibraryDialog,
+        list: elements.blockLibraryList,
+        closeButton: elements.blockLibraryClose,
+      });
     } catch (error) {
       elements.blocklyError.hidden = false;
       disableProgramButtons();
@@ -474,7 +580,8 @@
 
   function bindEvents() {
     elements.runButton.addEventListener("click", runProgram);
-    elements.stopButton.addEventListener("click", stopProgram);
+    elements.pauseButton.addEventListener("click", togglePause);
+    elements.stopButton.addEventListener("click", () => stopProgram());
     elements.resetButton.addEventListener("click", resetSimulator);
     elements.saveButton.addEventListener("click", saveProgram);
     elements.loadButton.addEventListener("click", loadProgram);
@@ -488,11 +595,15 @@
 
   function init() {
     getElements();
+    programControl = window.CVSProgramControl.create({
+      stopMotion: () => window.Drivetrain.stop(),
+      onStateChange: renderProgramState,
+    });
+    window.cvsProgramControl = programControl;
     bindEvents();
     window.VisionSimulator.init();
     renderSensorData(window.visionSensor);
     renderDrivetrain(window.drivetrain);
-    setProgramState(false);
     initBlockly();
   }
 

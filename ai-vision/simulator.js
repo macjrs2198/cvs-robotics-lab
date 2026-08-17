@@ -227,7 +227,9 @@
   }
 
   function step(deltaSeconds) {
-    model.integrateRobot(world, window.drivetrain, deltaSeconds);
+    if (!window.cvsProgramControl || !window.cvsProgramControl.isPaused()) {
+      model.integrateRobot(world, window.drivetrain, deltaSeconds);
+    }
     return updateCameraView();
   }
 

@@ -6,6 +6,8 @@
     return;
   }
 
+  window.CVSCoreBlockly.register(Blockly);
+
   let deviceOptions = [["Joint1", "Joint1"], ["Gripper", "Gripper"]];
 
   const DEFINITIONS = [
@@ -289,58 +291,46 @@
     return { kind: "block", type };
   }
 
-  function getToolbox() {
-    return {
-      kind: "categoryToolbox",
-      contents: [
-        {
-          kind: "category",
-          name: "Events / Control",
-          categorystyle: "event_category",
-          contents: [block("analog_when_started"), block("analog_forever"), block("analog_if"), block("analog_if_else"), block("analog_wait")],
-        },
-        {
-          kind: "category",
-          name: "Logic",
-          categorystyle: "logic_category",
-          contents: [block("analog_less"), block("analog_greater"), block("analog_equals"), block("analog_and"), block("analog_or"), block("analog_not")],
-        },
-        {
-          kind: "category",
-          name: "Variables",
-          categorystyle: "variable_category",
-          contents: [
-            { kind: "button", text: "Create variable", callbackkey: "CREATE_VARIABLE" },
-            block("analog_variable_set"),
-            block("analog_variable_get"),
-          ],
-        },
-        {
-          kind: "category",
-          name: "Math",
-          categorystyle: "math_category",
-          contents: [block("analog_number"), block("analog_arithmetic"), block("analog_map")],
-        },
-        {
+  const PACK_METADATA = [
+    {
+      id: "analog-sensors",
+      label: "Analog Sensors",
+      description: "Potentiometer raw readings and the existing map reporter.",
+      defaultEnabled: true,
+    },
+    {
+      id: "motors",
+      label: "Motors",
+      description: "MC55-style spin, stop, and velocity controls for joints and gripper.",
+      defaultEnabled: true,
+    },
+  ];
+
+  function getToolbox(preferences) {
+    const packs = [
+      {
+        ...PACK_METADATA[0],
+        category: {
           kind: "category",
           name: "Analog Sensors",
           categorystyle: "sensor_category",
-          contents: [block("analog_pot_raw")],
+          contents: [block("analog_pot_raw"), block("analog_map")],
         },
-        {
+      },
+      {
+        ...PACK_METADATA[1],
+        category: {
           kind: "category",
           name: "Motors",
           categorystyle: "motor_category",
           contents: [block("analog_motor_spin"), block("analog_motor_stop"), block("analog_motor_velocity")],
         },
-        {
-          kind: "category",
-          name: "Output",
-          categorystyle: "output_category",
-          contents: [block("analog_print_text"), block("analog_print_value")],
-        },
-      ],
-    };
+      },
+    ];
+    const enabled = preferences
+      ? window.CVSCoreToolbox.enabledPackIds(preferences)
+      : new Set(PACK_METADATA.map((pack) => pack.id));
+    return window.CVSCoreBlockly.composeToolbox(packs, enabled);
   }
 
   function numberBlock(value) {
@@ -419,17 +409,17 @@
     };
   }
 
-  function setDeviceNames(names, workspace) {
+  function setDeviceNames(names, workspace, preferences) {
     deviceOptions = names.map((name) => [name, name]);
-    if (workspace) workspace.updateToolbox(getToolbox());
+    if (workspace) workspace.updateToolbox(getToolbox(preferences));
   }
 
-  function createWorkspace(element, names) {
+  function createWorkspace(element, names, preferences) {
     setDeviceNames(names);
     Blockly.defineBlocksWithJsonArray(DEFINITIONS);
     defineDynamicBlocks();
     const workspace = Blockly.inject(element, {
-      toolbox: getToolbox(),
+      toolbox: getToolbox(preferences),
       theme,
       renderer: "zelos",
       trashcan: true,
@@ -449,5 +439,11 @@
     Blockly.serialization.workspaces.load(makeStarter(), workspace);
   }
 
-  window.AnalogFeedbackBlocks = { createWorkspace, setDeviceNames, loadStarter };
+  window.AnalogFeedbackBlocks = {
+    createWorkspace,
+    setDeviceNames,
+    loadStarter,
+    getToolbox,
+    getPacks: () => PACK_METADATA,
+  };
 })();

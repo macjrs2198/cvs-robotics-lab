@@ -243,6 +243,7 @@ input:focus-visible {
   padding: 7px 10px;
   border-bottom: 1px solid var(--line);
   background: rgba(6, 14, 12, 0.38);
+  overflow-x: auto;
 }
 
 .button-group,
@@ -280,6 +281,21 @@ input:focus-visible {
 
 .button:active {
   transform: translateY(1px);
+}
+
+.button:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+
+.header-status.is-paused {
+  color: #ffd187;
+  border-color: rgba(255, 209, 135, 0.4);
+}
+
+.header-status.is-paused .run-dot {
+  background: #ffc76b;
+  box-shadow: 0 0 10px rgba(255, 199, 107, 0.45);
 }
 
 .button-run {

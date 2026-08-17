@@ -166,6 +166,16 @@ h2 {
   box-shadow: 0 0 10px rgba(24, 201, 154, 0.62);
 }
 
+.program-state.is-paused {
+  color: #ffd187;
+  border-color: rgba(255, 209, 135, 0.4);
+}
+
+.program-state.is-paused .state-dot {
+  background: #ffc76b;
+  box-shadow: 0 0 10px rgba(255, 199, 107, 0.45);
+}
+
 .workbench {
   height: calc(100dvh - 64px);
   min-height: 620px;

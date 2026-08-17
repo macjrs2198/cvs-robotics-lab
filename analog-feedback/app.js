@@ -6,7 +6,7 @@
   const PROGRAM_FORMAT = "cvs-robotics-program";
   const PROGRAM_FORMAT_VERSION = 1;
   const APP_ID = "cvs-analog-feedback";
-  const APP_VERSION = "1.0";
+  const APP_VERSION = "2.0";
   const APP_DISPLAY_NAME = "CVS Analog Feedback";
   const APP_DISPLAY_NAMES = Object.freeze({
     "cvs-ai-vision": "CVS AI Vision",
@@ -23,6 +23,7 @@
     canvas: document.querySelector("#arm-canvas"),
     jointRadios: [...document.querySelectorAll('input[name="joint-count"]')],
     runButton: document.querySelector("#run-button"),
+    pauseButton: document.querySelector("#pause-button"),
     stopButton: document.querySelector("#stop-button"),
     resetButton: document.querySelector("#reset-button"),
     saveButton: document.querySelector("#save-button"),
@@ -31,6 +32,10 @@
     importButton: document.querySelector("#import-button"),
     importFileInput: document.querySelector("#import-file-input"),
     clearButton: document.querySelector("#clear-button"),
+    blockLibraryButton: document.querySelector("#block-library-button"),
+    blockLibraryDialog: document.querySelector("#block-library-dialog"),
+    blockLibraryList: document.querySelector("#block-library-list"),
+    blockLibraryClose: document.querySelector("#block-library-close"),
     clearOutputButton: document.querySelector("#clear-output-button"),
     runState: document.querySelector("#run-state"),
     headerStatus: document.querySelector(".header-status"),
@@ -62,7 +67,8 @@
 
   let workspace = null;
   let running = false;
-  let runToken = 0;
+  let programControl = null;
+  let blockLibrary = null;
   let outputLines = [];
   let lastFrameTime = performance.now();
   let lastUiUpdate = 0;
@@ -70,6 +76,21 @@
   function setRunState(label, isRunning) {
     elements.runState.textContent = label;
     elements.headerStatus.classList.toggle("is-running", Boolean(isRunning));
+  }
+
+  function renderRuntimeState(state) {
+    running = !state.stopped;
+    setRunState(state.paused ? "PAUSED" : state.running ? "RUNNING" : String(state.reason || "STOPPED").toUpperCase(), state.running);
+    elements.headerStatus.classList.toggle("is-paused", state.paused);
+    elements.runButton.disabled = !state.stopped;
+    elements.pauseButton.disabled = state.stopped;
+    elements.pauseButton.textContent = state.paused ? "RESUME" : "PAUSE";
+    elements.stopButton.disabled = state.stopped;
+  }
+
+  function togglePause() {
+    if (programControl.isPaused()) programControl.resume();
+    else programControl.pause();
   }
 
   function saveSettings() {
@@ -233,7 +254,7 @@
   function animationFrame(timestamp) {
     const delta = Math.min(0.05, Math.max(0, (timestamp - lastFrameTime) / 1000));
     lastFrameTime = timestamp;
-    if (running) arm.update(delta, motors, analog);
+    if (running && !programControl?.isPaused()) arm.update(delta, motors, analog);
     task.update(arm);
     drawScene();
     if (timestamp - lastUiUpdate > 50) {
@@ -261,12 +282,8 @@
     elements.outputConsole.scrollTop = elements.outputConsole.scrollHeight;
   }
 
-  function pause(milliseconds) {
-    return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
-  }
-
   function runIsActive(token) {
-    return running && token === runToken;
+    return programControl.isActive(token);
   }
 
   function variableKey(block) {
@@ -278,12 +295,16 @@
     switch (block.type) {
       case "analog_number":
         return Number(block.getFieldValue("NUM")) || 0;
+      case "math_number":
+        return Number(block.getFieldValue("NUM")) || 0;
       case "analog_pot_raw": {
         const device = block.getFieldValue("DEVICE");
         return analog.rawFor(device, arm.getPosition(device));
       }
       case "analog_variable_get":
+      case "variables_get":
         return variables.get(variableKey(block)) ?? 0;
+      case "math_arithmetic":
       case "analog_arithmetic": {
         const left = Number(evaluateValue(block.getInputTargetBlock("A"))) || 0;
         const right = Number(evaluateValue(block.getInputTargetBlock("B"))) || 0;
@@ -307,6 +328,25 @@
         return Number(evaluateValue(block.getInputTargetBlock("A"))) > Number(evaluateValue(block.getInputTargetBlock("B")));
       case "analog_equals":
         return Number(evaluateValue(block.getInputTargetBlock("A"))) === Number(evaluateValue(block.getInputTargetBlock("B")));
+      case "logic_compare": {
+        const left = evaluateValue(block.getInputTargetBlock("A"));
+        const right = evaluateValue(block.getInputTargetBlock("B"));
+        const operation = block.getFieldValue("OP");
+        if (operation === "NEQ") return left !== right;
+        if (operation === "LT") return Number(left) < Number(right);
+        if (operation === "LTE") return Number(left) <= Number(right);
+        if (operation === "GT") return Number(left) > Number(right);
+        if (operation === "GTE") return Number(left) >= Number(right);
+        return left === right;
+      }
+      case "logic_operation":
+        return block.getFieldValue("OP") === "OR"
+          ? Boolean(evaluateValue(block.getInputTargetBlock("A"))) || Boolean(evaluateValue(block.getInputTargetBlock("B")))
+          : Boolean(evaluateValue(block.getInputTargetBlock("A"))) && Boolean(evaluateValue(block.getInputTargetBlock("B")));
+      case "logic_negate":
+        return !Boolean(evaluateValue(block.getInputTargetBlock("BOOL")));
+      case "logic_boolean":
+        return block.getFieldValue("BOOL") === "TRUE";
       case "analog_and":
         return Boolean(evaluateValue(block.getInputTargetBlock("A"))) && Boolean(evaluateValue(block.getInputTargetBlock("B")));
       case "analog_or":
@@ -321,13 +361,42 @@
   async function executeChain(firstBlock, token) {
     let block = firstBlock;
     while (block && runIsActive(token)) {
+      if (!(await programControl.waitWhilePaused(token))) return;
       switch (block.type) {
+        case "core_forever":
         case "analog_forever":
           while (runIsActive(token)) {
             await executeChain(block.getInputTargetBlock("DO"), token);
-            await pause(30);
+            await programControl.delay(30, token);
           }
           return;
+        case "controls_repeat_ext": {
+          const repeatCount = Math.max(0, Math.floor(Number(evaluateValue(block.getInputTargetBlock("TIMES"))) || 0));
+          for (let index = 0; index < repeatCount && runIsActive(token); index += 1) {
+            await executeChain(block.getInputTargetBlock("DO"), token);
+            await programControl.yieldControl(token);
+          }
+          break;
+        }
+        case "core_wait_seconds":
+          await programControl.delay(
+            Math.max(0, Number(evaluateValue(block.getInputTargetBlock("SECONDS"))) || 0) * 1000,
+            token,
+          );
+          break;
+        case "core_wait_until":
+          await programControl.waitUntil(
+            () => Boolean(evaluateValue(block.getInputTargetBlock("CONDITION"))),
+            token,
+          );
+          break;
+        case "controls_if":
+          if (evaluateValue(block.getInputTargetBlock("IF0"))) {
+            await executeChain(block.getInputTargetBlock("DO0"), token);
+          } else {
+            await executeChain(block.getInputTargetBlock("ELSE"), token);
+          }
+          break;
         case "analog_if":
           if (evaluateValue(block.getInputTargetBlock("IF0"))) {
             await executeChain(block.getInputTargetBlock("DO0"), token);
@@ -341,11 +410,21 @@
           }
           break;
         case "analog_wait":
-          await pause(Math.max(0, Number(block.getFieldValue("SECONDS")) || 0) * 1000);
+          await programControl.delay(Math.max(0, Number(block.getFieldValue("SECONDS")) || 0) * 1000, token);
           break;
+        case "variables_set":
         case "analog_variable_set":
           variables.set(variableKey(block), Number(evaluateValue(block.getInputTargetBlock("VALUE"))) || 0);
           break;
+        case "math_change":
+          variables.set(
+            variableKey(block),
+            Number(variables.get(variableKey(block)) || 0) + Number(evaluateValue(block.getInputTargetBlock("DELTA")) || 0),
+          );
+          break;
+        case "core_stop_program":
+          stopProgram("STOPPED");
+          return;
         case "analog_motor_spin":
           motors.spin(block.getFieldValue("DEVICE"), block.getFieldValue("DIRECTION"));
           break;
@@ -358,6 +437,10 @@
         case "analog_print_text":
           printOutput(block.getFieldValue("TEXT"));
           break;
+        case "core_print_text":
+          printOutput(block.getFieldValue("TEXT"));
+          break;
+        case "core_print_value":
         case "analog_print_value":
           printOutput(evaluateValue(block.getInputTargetBlock("VALUE")));
           break;
@@ -371,28 +454,22 @@
   async function runProgram() {
     if (!workspace) return;
     stopProgram("READY");
-    const startBlock = workspace.getTopBlocks(true).find((block) => block.type === "analog_when_started");
+    const startBlock = workspace.getTopBlocks(true).find((block) => ["core_when_started", "analog_when_started"].includes(block.type));
     if (!startBlock) {
       printOutput("Add a When Started block before running.");
       setRunState("NEEDS START", false);
       return;
     }
-    const token = ++runToken;
-    running = true;
-    setRunState("RUNNING", true);
+    variables.clear();
+    const token = programControl.run();
     await executeChain(startBlock.getNextBlock(), token);
     if (runIsActive(token)) {
-      running = false;
-      motors.stopAll();
-      setRunState("COMPLETE", false);
+      programControl.complete(token, "complete");
     }
   }
 
   function stopProgram(label = "STOPPED") {
-    running = false;
-    runToken += 1;
-    motors.stopAll();
-    setRunState(label, false);
+    if (programControl) programControl.stop(String(label).toLowerCase());
     updateInstrumentation();
   }
 
@@ -414,7 +491,7 @@
     task.reset(arm);
     variables.clear();
     if (workspace) {
-      window.AnalogFeedbackBlocks.setDeviceNames(activeNames(), workspace);
+      window.AnalogFeedbackBlocks.setDeviceNames(activeNames(), workspace, blockLibrary?.preferences);
       if (options.loadStarter !== false) window.AnalogFeedbackBlocks.loadStarter(workspace);
     }
     renderCalibrationPanel();
@@ -591,6 +668,7 @@
       });
     });
     elements.runButton.addEventListener("click", runProgram);
+    elements.pauseButton.addEventListener("click", togglePause);
     elements.stopButton.addEventListener("click", () => stopProgram());
     elements.resetButton.addEventListener("click", resetSimulation);
     elements.saveButton.addEventListener("click", saveProgram);
@@ -604,6 +682,11 @@
   }
 
   function initialize() {
+    programControl = window.CVSProgramControl.create({
+      stopMotion: () => motors.stopAll(),
+      onStateChange: renderRuntimeState,
+    });
+    window.cvsProgramControl = programControl;
     bindEvents();
     configureJointCount(jointCount, { loadStarter: false, persist: false });
     if (!window.Blockly || window.AnalogFeedbackBlocks.error) {
@@ -613,11 +696,24 @@
       return;
     }
     try {
+      const packs = window.AnalogFeedbackBlocks.getPacks();
+      const initialPreferences = window.CVSCoreToolbox.readPreferences(APP_ID, packs);
       workspace = window.AnalogFeedbackBlocks.createWorkspace(
         document.querySelector("#blockly-div"),
         activeNames(),
+        initialPreferences,
       );
       window.AnalogFeedbackBlocks.loadStarter(workspace);
+      blockLibrary = window.CVSCoreToolbox.setup({
+        appId: APP_ID,
+        packs,
+        workspace,
+        getToolbox: (preferences) => window.AnalogFeedbackBlocks.getToolbox(preferences),
+        button: elements.blockLibraryButton,
+        dialog: elements.blockLibraryDialog,
+        list: elements.blockLibraryList,
+        closeButton: elements.blockLibraryClose,
+      });
     } catch (error) {
       console.error(error);
       elements.blocklyError.hidden = false;

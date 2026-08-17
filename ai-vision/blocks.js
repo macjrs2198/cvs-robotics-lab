@@ -8,6 +8,8 @@
     return;
   }
 
+  window.CVSCoreBlockly.register(Blockly);
+
   const COLORS = {
     events: 28,
     control: 205,
@@ -353,34 +355,13 @@
     }
   ]);
 
-  const toolbox = {
-    kind: "categoryToolbox",
-    contents: [
-      {
-        kind: "category",
-        name: "Events / Control",
-        colour: COLORS.control,
-        contents: [
-          { kind: "block", type: "event_when_started" },
-          { kind: "block", type: "control_forever" },
-          { kind: "block", type: "control_if" },
-          { kind: "block", type: "control_if_else" }
-        ]
-      },
-      {
-        kind: "category",
-        name: "Logic",
-        colour: COLORS.logic,
-        contents: [
-          { kind: "block", type: "logic_equals" },
-          { kind: "block", type: "logic_less_than" },
-          { kind: "block", type: "logic_greater_than" },
-          { kind: "block", type: "logic_and" },
-          { kind: "block", type: "logic_or" },
-          { kind: "block", type: "logic_not" }
-        ]
-      },
-      {
+  const PACKS = [
+    {
+      id: "vision-sensors",
+      label: "AI Vision Sensors",
+      description: "Object visibility, center, size, ID, and confidence reporters.",
+      defaultEnabled: true,
+      category: {
         kind: "category",
         name: "AI Vision",
         colour: COLORS.vision,
@@ -393,8 +374,14 @@
           { kind: "block", type: "vision_id" },
           { kind: "block", type: "vision_confidence" }
         ]
-      },
-      {
+      }
+    },
+    {
+      id: "drive",
+      label: "Drive",
+      description: "Forward, reverse, turning, stopping, and speed controls.",
+      defaultEnabled: true,
+      category: {
         kind: "category",
         name: "Drive",
         colour: COLORS.drivetrain,
@@ -407,18 +394,16 @@
           { kind: "block", type: "drive_set_speed" },
           { kind: "block", type: "drive_set_turn_speed" }
         ]
-      },
-      {
-        kind: "category",
-        name: "Output",
-        colour: COLORS.output,
-        contents: [
-          { kind: "block", type: "output_print_value" },
-          { kind: "block", type: "output_print_text" }
-        ]
       }
-    ]
-  };
+    }
+  ];
+
+  function getToolbox(preferences) {
+    const enabled = preferences
+      ? window.CVSCoreToolbox.enabledPackIds(preferences)
+      : new Set(PACKS.map((pack) => pack.id));
+    return window.CVSCoreBlockly.composeToolbox(PACKS, enabled);
+  }
 
   const theme = Blockly.Theme.defineTheme("visionTheme", {
     base: Blockly.Themes.Classic,
@@ -442,9 +427,9 @@
     }
   });
 
-  function createWorkspace(container) {
+  function createWorkspace(container, preferences) {
     return Blockly.inject(container, {
-      toolbox,
+      toolbox: getToolbox(preferences),
       theme,
       renderer: "zelos",
       trashcan: true,
@@ -485,6 +470,8 @@
 
   window.VisionBlocks = {
     createWorkspace,
-    addStarterBlock
+    addStarterBlock,
+    getToolbox,
+    getPacks: () => PACKS
   };
 })();

@@ -6,7 +6,7 @@
   const PROGRAM_FORMAT = "cvs-robotics-program";
   const PROGRAM_FORMAT_VERSION = 1;
   const APP_ID = "cvs-digital-feedback";
-  const APP_VERSION = "1.0";
+  const APP_VERSION = "2.0";
   const APP_DISPLAY_NAME = "CVS Digital Feedback";
   const APP_DISPLAY_NAMES = Object.freeze({
     "cvs-ai-vision": "CVS AI Vision",
@@ -22,6 +22,7 @@
     canvas: document.querySelector("#field-canvas"),
     activitySelector: document.querySelector("#activity-selector"),
     runButton: document.querySelector("#run-button"),
+    pauseButton: document.querySelector("#pause-button"),
     stopButton: document.querySelector("#stop-button"),
     resetButton: document.querySelector("#reset-button"),
     saveButton: document.querySelector("#save-button"),
@@ -30,6 +31,10 @@
     importButton: document.querySelector("#import-button"),
     importFileInput: document.querySelector("#import-file-input"),
     clearButton: document.querySelector("#clear-button"),
+    blockLibraryButton: document.querySelector("#block-library-button"),
+    blockLibraryDialog: document.querySelector("#block-library-dialog"),
+    blockLibraryList: document.querySelector("#block-library-list"),
+    blockLibraryClose: document.querySelector("#block-library-close"),
     trackActions: document.querySelector("#track-actions"),
     editTrackButton: document.querySelector("#edit-track-button"),
     resetTrackButton: document.querySelector("#reset-track-button"),
@@ -92,12 +97,14 @@
   let currentActivity = activities[currentActivityId];
   let workspace = null;
   let running = false;
-  let runToken = 0;
+  let programControl = null;
+  let blockLibrary = null;
   let outputLines = [];
   let lastFrameTime = performance.now();
   let lastUiUpdate = 0;
   let sensorStatusSignature = "";
   const workspaceMemory = Object.create(null);
+  const variables = new Map();
 
   function storageKey(activityId) {
     return `${STORAGE_PREFIX}-${activityId}`;
@@ -106,6 +113,21 @@
   function setRunState(label, isRunning) {
     elements.runState.textContent = label;
     elements.headerStatus.classList.toggle("is-running", Boolean(isRunning));
+  }
+
+  function renderRuntimeState(state) {
+    running = !state.stopped;
+    setRunState(state.paused ? "PAUSED" : state.running ? "RUNNING" : String(state.reason || "STOPPED").toUpperCase(), state.running);
+    elements.headerStatus.classList.toggle("is-paused", state.paused);
+    elements.runButton.disabled = !state.stopped;
+    elements.pauseButton.disabled = state.stopped;
+    elements.pauseButton.textContent = state.paused ? "RESUME" : "PAUSE";
+    elements.stopButton.disabled = state.stopped;
+  }
+
+  function togglePause() {
+    if (programControl.isPaused()) programControl.resume();
+    else programControl.pause();
   }
 
   function setSensorIndicator(indicator, valueElement, on) {
@@ -304,7 +326,7 @@
   function animationFrame(timestamp) {
     const delta = Math.min(0.05, Math.max(0, (timestamp - lastFrameTime) / 1000));
     lastFrameTime = timestamp;
-    currentActivity.update(delta, running);
+    currentActivity.update(delta, running && !programControl?.isPaused());
     drawField();
     if (timestamp - lastUiUpdate > 50) {
       updateTelemetry();
@@ -331,12 +353,12 @@
     elements.outputConsole.scrollTop = elements.outputConsole.scrollHeight;
   }
 
-  function pause(milliseconds) {
-    return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+  function runIsActive(token) {
+    return programControl.isActive(token);
   }
 
-  function runIsActive(token) {
-    return running && token === runToken;
+  function variableKey(block) {
+    return block.getFieldValue("VAR") || "value";
   }
 
   function evaluateValue(block) {
@@ -356,6 +378,38 @@
         return currentActivity.readInput("rearRight");
       case "sensor_contact_switch":
         return currentActivity.readInput("contact");
+      case "math_number":
+        return Number(block.getFieldValue("NUM")) || 0;
+      case "variables_get":
+        return variables.get(variableKey(block)) ?? 0;
+      case "math_arithmetic": {
+        const left = Number(evaluateValue(block.getInputTargetBlock("A"))) || 0;
+        const right = Number(evaluateValue(block.getInputTargetBlock("B"))) || 0;
+        const operation = block.getFieldValue("OP");
+        if (operation === "MINUS") return left - right;
+        if (operation === "MULTIPLY") return left * right;
+        if (operation === "DIVIDE") return right === 0 ? 0 : left / right;
+        return left + right;
+      }
+      case "logic_compare": {
+        const left = evaluateValue(block.getInputTargetBlock("A"));
+        const right = evaluateValue(block.getInputTargetBlock("B"));
+        const operation = block.getFieldValue("OP");
+        if (operation === "NEQ") return left !== right;
+        if (operation === "LT") return Number(left) < Number(right);
+        if (operation === "LTE") return Number(left) <= Number(right);
+        if (operation === "GT") return Number(left) > Number(right);
+        if (operation === "GTE") return Number(left) >= Number(right);
+        return left === right;
+      }
+      case "logic_operation":
+        return block.getFieldValue("OP") === "OR"
+          ? Boolean(evaluateValue(block.getInputTargetBlock("A"))) || Boolean(evaluateValue(block.getInputTargetBlock("B")))
+          : Boolean(evaluateValue(block.getInputTargetBlock("A"))) && Boolean(evaluateValue(block.getInputTargetBlock("B")));
+      case "logic_negate":
+        return !Boolean(evaluateValue(block.getInputTargetBlock("BOOL")));
+      case "logic_boolean":
+        return block.getFieldValue("BOOL") === "TRUE";
       case "feedback_and":
         return Boolean(evaluateValue(block.getInputTargetBlock("A"))) && Boolean(evaluateValue(block.getInputTargetBlock("B")));
       case "feedback_or":
@@ -372,15 +426,45 @@
   async function executeChain(firstBlock, token) {
     let block = firstBlock;
     while (block && runIsActive(token)) {
+      if (!(await programControl.waitWhilePaused(token))) return;
       switch (block.type) {
+        case "core_when_started":
         case "feedback_when_started":
           break;
+        case "core_forever":
         case "feedback_forever":
           while (runIsActive(token)) {
             await executeChain(block.getInputTargetBlock("DO"), token);
-            await pause(34);
+            await programControl.delay(34, token);
           }
           return;
+        case "controls_repeat_ext": {
+          const repeatCount = Math.max(0, Math.floor(Number(evaluateValue(block.getInputTargetBlock("TIMES"))) || 0));
+          for (let index = 0; index < repeatCount && runIsActive(token); index += 1) {
+            await executeChain(block.getInputTargetBlock("DO"), token);
+            await programControl.yieldControl(token);
+          }
+          break;
+        }
+        case "core_wait_seconds":
+          await programControl.delay(
+            Math.max(0, Number(evaluateValue(block.getInputTargetBlock("SECONDS"))) || 0) * 1000,
+            token,
+          );
+          break;
+        case "core_wait_until":
+          await programControl.waitUntil(
+            () => Boolean(evaluateValue(block.getInputTargetBlock("CONDITION"))),
+            token,
+          );
+          break;
+        case "controls_if":
+          if (evaluateValue(block.getInputTargetBlock("IF0"))) {
+            await executeChain(block.getInputTargetBlock("DO0"), token);
+          } else {
+            await executeChain(block.getInputTargetBlock("ELSE"), token);
+          }
+          break;
         case "feedback_if":
           if (evaluateValue(block.getInputTargetBlock("IF0"))) {
             await executeChain(block.getInputTargetBlock("DO0"), token);
@@ -393,6 +477,18 @@
             await executeChain(block.getInputTargetBlock("ELSE"), token);
           }
           break;
+        case "variables_set":
+          variables.set(variableKey(block), evaluateValue(block.getInputTargetBlock("VALUE")));
+          break;
+        case "math_change":
+          variables.set(
+            variableKey(block),
+            Number(variables.get(variableKey(block)) || 0) + Number(evaluateValue(block.getInputTargetBlock("DELTA")) || 0),
+          );
+          break;
+        case "core_stop_program":
+          stopProgram("STOPPED");
+          return;
         case "drive_forward":
           robot.drive.forward();
           break;
@@ -417,6 +513,12 @@
         case "output_print_text":
           printOutput(block.getFieldValue("TEXT"));
           break;
+        case "core_print_text":
+          printOutput(block.getFieldValue("TEXT"));
+          break;
+        case "core_print_value":
+          printOutput(evaluateValue(block.getInputTargetBlock("VALUE")));
+          break;
         case "output_print_value":
           printOutput(evaluateValue(block.getInputTargetBlock("VALUE")) ? "ON" : "OFF");
           break;
@@ -430,38 +532,33 @@
   async function runProgram() {
     if (!workspace) return;
     stopProgram("READY");
+    variables.clear();
     if (currentActivityId === "line-follower" && currentActivity.editing) setTrackEditing(false);
 
-    const startBlock = workspace.getTopBlocks(true).find((block) => block.type === "feedback_when_started");
+    const startBlock = workspace.getTopBlocks(true).find((block) => ["core_when_started", "feedback_when_started"].includes(block.type));
     if (!startBlock) {
       printOutput("Add a When Started block before running.");
       setRunState("NEEDS START", false);
       return;
     }
 
-    const token = ++runToken;
-    running = true;
-    setRunState("RUNNING", true);
+    const token = programControl.run();
     await executeChain(startBlock, token);
 
     if (runIsActive(token)) {
-      running = false;
-      robot.drive.stop();
-      setRunState("COMPLETE", false);
+      programControl.complete(token, "complete");
     }
   }
 
   function stopProgram(label = "STOPPED") {
-    running = false;
-    runToken += 1;
-    robot.drive.stop();
-    setRunState(label, false);
+    if (programControl) programControl.stop(String(label).toLowerCase());
     updateTelemetry();
   }
 
   function resetSimulation() {
     stopProgram("READY");
     currentActivity.reset();
+    variables.clear();
     clearOutput();
     updateTelemetry();
   }
@@ -474,7 +571,12 @@
   function restoreWorkspace(activityId) {
     if (!workspace) return;
     const sensorConfiguration = activities["line-follower"].getSensorConfiguration();
-    window.DigitalFeedbackBlocks.updateToolbox(workspace, activityId, sensorConfiguration);
+    window.DigitalFeedbackBlocks.updateToolbox(
+      workspace,
+      activityId,
+      sensorConfiguration,
+      blockLibrary?.preferences,
+    );
     workspace.clear();
     if (workspaceMemory[activityId]) {
       Blockly.serialization.workspaces.load(workspaceMemory[activityId], workspace);
@@ -507,7 +609,12 @@
 
     if (workspace && currentActivityId === "line-follower") {
       const nextConfiguration = lineActivity.getSensorConfiguration();
-      window.DigitalFeedbackBlocks.updateToolbox(workspace, currentActivityId, nextConfiguration);
+      window.DigitalFeedbackBlocks.updateToolbox(
+        workspace,
+        currentActivityId,
+        nextConfiguration,
+        blockLibrary?.preferences,
+      );
       if (options.loadStarter !== false) {
         window.DigitalFeedbackBlocks.loadStarter(workspace, currentActivityId, nextConfiguration);
       }
@@ -664,6 +771,7 @@
         workspace,
         currentActivityId,
         activities["line-follower"].getSensorConfiguration(),
+        blockLibrary?.preferences,
       );
       workspace.clear();
       Blockly.serialization.workspaces.load(programFile.workspace, workspace);
@@ -682,6 +790,7 @@
         workspace,
         currentActivityId,
         activities["line-follower"].getSensorConfiguration(),
+        blockLibrary?.preferences,
       );
       workspace.clear();
       Blockly.serialization.workspaces.load(previousWorkspace, workspace);
@@ -738,6 +847,7 @@
         workspace,
         currentActivityId,
         activities["line-follower"].getSensorConfiguration(),
+        blockLibrary?.preferences,
       );
       workspace.clear();
       Blockly.serialization.workspaces.load(payload.workspace, workspace);
@@ -762,6 +872,7 @@
   function bindEvents() {
     elements.activitySelector.addEventListener("change", (event) => switchActivity(event.target.value));
     elements.runButton.addEventListener("click", runProgram);
+    elements.pauseButton.addEventListener("click", togglePause);
     elements.stopButton.addEventListener("click", () => stopProgram());
     elements.resetButton.addEventListener("click", resetSimulation);
     elements.saveButton.addEventListener("click", saveProgram);
@@ -817,6 +928,11 @@
   }
 
   function initialize() {
+    programControl = window.CVSProgramControl.create({
+      stopMotion: () => robot.drive.stop(),
+      onStateChange: renderRuntimeState,
+    });
+    window.cvsProgramControl = programControl;
     bindEvents();
     initializeActivities();
     if (!window.Blockly) {
@@ -827,16 +943,33 @@
     }
 
     try {
+      const packs = window.DigitalFeedbackBlocks.getPacks();
+      const initialPreferences = window.CVSCoreToolbox.readPreferences(APP_ID, packs);
       workspace = window.DigitalFeedbackBlocks.createWorkspace(
         document.querySelector("#blockly-div"),
         currentActivityId,
         activities["line-follower"].getSensorConfiguration(),
+        initialPreferences,
       );
       window.DigitalFeedbackBlocks.loadStarter(
         workspace,
         currentActivityId,
         activities["line-follower"].getSensorConfiguration(),
       );
+      blockLibrary = window.CVSCoreToolbox.setup({
+        appId: APP_ID,
+        packs,
+        workspace,
+        getToolbox: (preferences) => window.DigitalFeedbackBlocks.getToolbox(
+          currentActivityId,
+          activities["line-follower"].getSensorConfiguration(),
+          preferences,
+        ),
+        button: elements.blockLibraryButton,
+        dialog: elements.blockLibraryDialog,
+        list: elements.blockLibraryList,
+        closeButton: elements.blockLibraryClose,
+      });
     } catch (error) {
       console.error(error);
       elements.blocklyError.hidden = false;

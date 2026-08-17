@@ -1,6 +1,8 @@
 (function () {
   "use strict";
 
+  window.CVSCoreBlockly.register(Blockly);
+
   const BLOCK_DEFINITIONS = [
     {
       type: "feedback_when_started",
@@ -291,7 +293,22 @@
       : [block("sensor_rear_line")];
   }
 
-  function getToolbox(activityId, configuration) {
+  const PACK_METADATA = [
+    {
+      id: "digital-sensors",
+      label: "Digital Sensors",
+      description: "Line receivers and the activity-compatible contact switch.",
+      defaultEnabled: true,
+    },
+    {
+      id: "drive",
+      label: "Drive",
+      description: "Forward, reverse, turning, stopping, and speed controls.",
+      defaultEnabled: true,
+    },
+  ];
+
+  function getToolbox(activityId, configuration, preferences) {
     const normalized = normalizeConfiguration(configuration);
     const sensorBlocks = activityId === "contact-switch"
       ? [block("sensor_contact_switch")]
@@ -300,33 +317,19 @@
           ...mountBlocks("rear", normalized.rear.mode),
         ];
 
-    return {
-      kind: "categoryToolbox",
-      contents: [
-        {
-          kind: "category",
-          name: "Events / Control",
-          categorystyle: "event_category",
-          contents: [
-            block("feedback_when_started"),
-            block("feedback_forever"),
-            block("feedback_if"),
-            block("feedback_if_else"),
-          ],
-        },
-        {
-          kind: "category",
-          name: "Logic",
-          categorystyle: "logic_category",
-          contents: [block("feedback_and"), block("feedback_or"), block("feedback_not"), block("feedback_equals")],
-        },
-        {
+    const packs = [
+      {
+        ...PACK_METADATA[0],
+        category: {
           kind: "category",
           name: "Digital Sensors",
           categorystyle: "sensor_category",
           contents: sensorBlocks,
         },
-        {
+      },
+      {
+        ...PACK_METADATA[1],
+        category: {
           kind: "category",
           name: "Drive",
           categorystyle: "drive_category",
@@ -340,14 +343,12 @@
             block("drive_set_turn_speed"),
           ],
         },
-        {
-          kind: "category",
-          name: "Output",
-          categorystyle: "output_category",
-          contents: [block("output_print_text"), block("output_print_value")],
-        },
-      ],
-    };
+      },
+    ];
+    const enabled = preferences
+      ? window.CVSCoreToolbox.enabledPackIds(preferences)
+      : new Set(PACK_METADATA.map((pack) => pack.id));
+    return window.CVSCoreBlockly.composeToolbox(packs, enabled);
   }
 
   function makeSingleStarter(sensorType = "sensor_line") {
@@ -549,10 +550,10 @@
     };
   }
 
-  function createWorkspace(element, activityId, configuration) {
+  function createWorkspace(element, activityId, configuration, preferences) {
     Blockly.defineBlocksWithJsonArray(BLOCK_DEFINITIONS);
     return Blockly.inject(element, {
-      toolbox: getToolbox(activityId, configuration),
+      toolbox: getToolbox(activityId, configuration, preferences),
       theme,
       renderer: "zelos",
       trashcan: true,
@@ -563,8 +564,8 @@
     });
   }
 
-  function updateToolbox(workspace, activityId, configuration) {
-    workspace.updateToolbox(getToolbox(activityId, configuration));
+  function updateToolbox(workspace, activityId, configuration, preferences) {
+    workspace.updateToolbox(getToolbox(activityId, configuration, preferences));
   }
 
   function loadStarter(workspace, activityId, configuration) {
@@ -579,5 +580,7 @@
     createWorkspace,
     updateToolbox,
     loadStarter,
+    getToolbox,
+    getPacks: () => PACK_METADATA,
   };
 })();
