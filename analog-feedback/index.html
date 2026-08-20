@@ -17,6 +17,7 @@
     />
     <link rel="stylesheet" href="./styles.css?v=2.0" />
     <link rel="stylesheet" href="../shared/controls.css?v=1.0" />
+    <link rel="stylesheet" href="../shared/help/help-ui.css?v=1.0" />
   </head>
   <body>
     <div class="app-shell">
@@ -63,6 +64,7 @@
             </div>
             <div class="toolbar-rule" aria-hidden="true"></div>
             <div class="button-group">
+              <button id="help-button" class="button button-quiet" type="button">HELP</button>
               <button id="block-library-button" class="button button-quiet" type="button">BLOCK LIBRARY</button>
               <button id="save-button" class="button button-quiet" type="button">SAVE</button>
               <button id="load-button" class="button button-quiet" type="button">LOAD</button>
@@ -149,6 +151,8 @@
     <script src="../shared/blockly/core-blocks.js?v=1.0"></script>
     <script src="../shared/blockly/core-toolbox.js?v=1.0"></script>
     <script src="../shared/runtime/program-control.js?v=1.0"></script>
+    <script src="../shared/help/help-ui.js?v=1.0"></script>
+    <script src="./help-content.js?v=1.0"></script>
     <script src="./motors.js"></script>
     <script src="./analog.js"></script>
     <script src="./arm.js"></script>

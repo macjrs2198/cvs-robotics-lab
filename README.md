@@ -29,3 +29,9 @@ Open `index.html` in a modern browser, or serve the repository with any static f
 8. Use the generated GitHub Pages URL.
 
 The launcher and all simulator assets use relative paths, so the package can be hosted below a repository path such as `https://username.github.io/cvs-robotics-lab/`.
+
+## Maintaining In-App Help
+
+Each simulator keeps its current instructions in its own `help-content.js` file. The shared modal renderer and shared wording live in `shared/help/`.
+
+**When adding or removing a user-facing simulator feature, review and update that app's Help content in the same change.**
