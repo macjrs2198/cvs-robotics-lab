@@ -2,7 +2,7 @@
 
 A small, browser-based educational simulator that lets students use Google Blockly to write programs against simulated VEX V5 AI Vision Sensor data and issue basic simulated drivetrain commands. It is designed for learning sensor logic before a VEX V5 Brain or AI Vision Sensor is available.
 
-The simulator models sensor data and drivetrain command state only. It does not move a robot, perform computer vision, or connect to VEX hardware.
+The simulator uses a lightweight 2D world model to keep robot motion, the draggable target, camera projection, and a compact World View synchronized. It does not perform computer vision or connect to VEX hardware.
 
 ## Run Locally
 
@@ -38,6 +38,7 @@ No build command or configuration file is required.
 
 - A touch-friendly Blockly workspace with event, control, logic, AI Vision, Drive, and output blocks
 - One draggable target in a responsive 320 × 240 simulated camera coordinate system
+- A compact top-down World View showing the shared robot position, heading, target, and 60-degree camera field of view
 - Live `exists`, `centerX`, `centerY`, `width`, `height`, `id`, and `confidence` values
 - Run, stop, and reset controls
 - A live program output console for the Print blocks
@@ -55,7 +56,7 @@ No build command or configuration file is required.
 
 - `index.html` — page structure and Blockly CDN loading
 - `styles.css` — responsive, touchscreen-friendly layout
-- `simulator.js` — independent sensor model and draggable target simulation
+- `simulator.js` — shared world model, camera projection, World View layout, and draggable target simulation
 - `drivetrain.js` — independent drivetrain command state and validation
 - `blocks.js` — Blockly block definitions and toolbox setup
 - `app.js` — block program interpreter, controls, output, local saving, and portable program files
@@ -71,7 +72,6 @@ The Blockly program reads from the plain `window.visionSensor` object defined in
 - Simulated missed detections
 - Sensor noise
 - AprilTags
-- Moving robot and drivetrain physics
 - BEST Robotics game field
 - Generated VEXcode Python or C++
 - Offline/PWA support

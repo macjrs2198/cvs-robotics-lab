@@ -28,6 +28,12 @@
   const DRAG_MARGIN = 50;
   const MIN_DRAG_DISTANCE = 80;
   const MAX_DRAG_DISTANCE = 520;
+  const WORLD_VIEW_WIDTH = 320;
+  const WORLD_VIEW_HEIGHT = 160;
+  const WORLD_VIEW_PADDING = 14;
+  const WORLD_VIEW_MIN_HALF_WIDTH = 360;
+  const WORLD_VIEW_MIN_HALF_HEIGHT = 180;
+  const WORLD_VIEW_BOUNDARY_MARGIN = 40;
 
   function clamp(value, minimum, maximum) {
     return Math.min(Math.max(value, minimum), maximum);
@@ -137,6 +143,72 @@
     return world.target;
   }
 
+  function layoutWorldView(world, width = WORLD_VIEW_WIDTH, height = WORLD_VIEW_HEIGHT) {
+    const mapWidth = Math.max(Number(width) || WORLD_VIEW_WIDTH, WORLD_VIEW_PADDING * 2 + 1);
+    const mapHeight = Math.max(Number(height) || WORLD_VIEW_HEIGHT, WORLD_VIEW_PADDING * 2 + 1);
+    const halfWidth = Math.max(
+      WORLD_VIEW_MIN_HALF_WIDTH,
+      Math.abs(world.robot.x) + WORLD_VIEW_BOUNDARY_MARGIN,
+      Math.abs(world.target.x) + WORLD_VIEW_BOUNDARY_MARGIN
+    );
+    const halfHeight = Math.max(
+      WORLD_VIEW_MIN_HALF_HEIGHT,
+      Math.abs(world.robot.y) + WORLD_VIEW_BOUNDARY_MARGIN,
+      Math.abs(world.target.y) + WORLD_VIEW_BOUNDARY_MARGIN
+    );
+    const scale = Math.min(
+      (mapWidth - WORLD_VIEW_PADDING * 2) / (halfWidth * 2),
+      (mapHeight - WORLD_VIEW_PADDING * 2) / (halfHeight * 2)
+    );
+    const projection = projectTarget(world);
+
+    function toScreen(point) {
+      return {
+        x: mapWidth / 2 + point.x * scale,
+        y: mapHeight / 2 - point.y * scale
+      };
+    }
+
+    const robot = toScreen(world.robot);
+    const target = toScreen(world.target);
+    const headingDegrees = world.robot.heading * 180 / Math.PI;
+    const rayLength = Math.hypot(mapWidth, mapHeight) * 1.5;
+
+    function rayPoint(angle, length = rayLength) {
+      return {
+        x: robot.x + Math.cos(angle) * length,
+        y: robot.y - Math.sin(angle) * length
+      };
+    }
+
+    return {
+      width: mapWidth,
+      height: mapHeight,
+      scale,
+      bounds: {
+        minimumX: -halfWidth,
+        maximumX: halfWidth,
+        minimumY: -halfHeight,
+        maximumY: halfHeight
+      },
+      robot: {
+        x: robot.x,
+        y: robot.y,
+        rotationDegrees: -headingDegrees,
+        headingDegrees: (headingDegrees + 360) % 360
+      },
+      target,
+      fov: {
+        left: rayPoint(world.robot.heading + CAMERA_HORIZONTAL_FOV_RADIANS / 2),
+        right: rayPoint(world.robot.heading - CAMERA_HORIZONTAL_FOV_RADIANS / 2),
+        direction: rayPoint(world.robot.heading, 46)
+      },
+      distance: projection.distance,
+      bearingDegrees: projection.bearing * 180 / Math.PI,
+      targetInFov: projection.sensor.exists
+    };
+  }
+
   return Object.freeze({
     SENSOR_WIDTH,
     SENSOR_HEIGHT,
@@ -146,6 +218,7 @@
     integrateRobot,
     projectTarget,
     setTargetFromCamera,
+    layoutWorldView,
     normalizeAngle,
     config: Object.freeze({
       defaultTargetDistance: DEFAULT_TARGET_DISTANCE,
@@ -153,7 +226,10 @@
       minRenderedSize: MIN_RENDERED_SIZE,
       maxRenderedSize: MAX_RENDERED_SIZE,
       maxLinearSpeed: MAX_LINEAR_SPEED,
-      driveTrackWidth: DRIVE_TRACK_WIDTH
+      driveTrackWidth: DRIVE_TRACK_WIDTH,
+      worldViewWidth: WORLD_VIEW_WIDTH,
+      worldViewHeight: WORLD_VIEW_HEIGHT,
+      worldViewHorizontalFov: CAMERA_HORIZONTAL_FOV_DEGREES
     })
   });
 });
@@ -182,6 +258,16 @@
   let projection = model.projectTarget(world);
   let cameraElement = null;
   let targetElement = null;
+  let worldMapElement = null;
+  let worldMapFovElement = null;
+  let worldMapCameraAxisElement = null;
+  let worldMapRobotElement = null;
+  let worldMapRobotLabelElement = null;
+  let worldMapTargetElement = null;
+  let worldMapTargetLabelElement = null;
+  let worldMapDistanceElement = null;
+  let worldMapBearingElement = null;
+  let worldMapHeadingElement = null;
   let dragPointerId = null;
   let dragOffsetX = 0;
   let dragOffsetY = 0;
@@ -219,10 +305,58 @@
     );
   }
 
+  function formatSignedDegrees(value) {
+    const rounded = Math.round(value);
+    if (rounded > 0) return `+${rounded}\u00b0`;
+    return `${rounded}\u00b0`;
+  }
+
+  function renderWorldView() {
+    if (!worldMapElement) return;
+
+    const layout = model.layoutWorldView(world);
+    const robot = layout.robot;
+    const target = layout.target;
+    const targetLabelOnRight = target.x < layout.width - 66;
+    const robotLabelOnRight = robot.x < layout.width - 62;
+
+    worldMapFovElement.setAttribute(
+      "d",
+      `M ${robot.x} ${robot.y} L ${layout.fov.left.x} ${layout.fov.left.y} L ${layout.fov.right.x} ${layout.fov.right.y} Z`
+    );
+    worldMapFovElement.classList.toggle("contains-target", layout.targetInFov);
+    worldMapCameraAxisElement.setAttribute("x1", robot.x);
+    worldMapCameraAxisElement.setAttribute("y1", robot.y);
+    worldMapCameraAxisElement.setAttribute("x2", layout.fov.direction.x);
+    worldMapCameraAxisElement.setAttribute("y2", layout.fov.direction.y);
+    worldMapRobotElement.setAttribute(
+      "transform",
+      `translate(${robot.x} ${robot.y}) rotate(${robot.rotationDegrees})`
+    );
+    worldMapTargetElement.setAttribute("transform", `translate(${target.x} ${target.y})`);
+    worldMapTargetElement.classList.toggle("is-detected", layout.targetInFov);
+
+    worldMapRobotLabelElement.setAttribute("x", robot.x + (robotLabelOnRight ? 13 : -13));
+    worldMapRobotLabelElement.setAttribute("y", Math.min(Math.max(robot.y + 18, 14), layout.height - 7));
+    worldMapRobotLabelElement.setAttribute("text-anchor", robotLabelOnRight ? "start" : "end");
+    worldMapTargetLabelElement.setAttribute("x", target.x + (targetLabelOnRight ? 13 : -13));
+    worldMapTargetLabelElement.setAttribute("y", Math.min(Math.max(target.y - 10, 14), layout.height - 7));
+    worldMapTargetLabelElement.setAttribute("text-anchor", targetLabelOnRight ? "start" : "end");
+
+    worldMapDistanceElement.textContent = String(Math.round(layout.distance));
+    worldMapBearingElement.textContent = formatSignedDegrees(layout.bearingDegrees);
+    worldMapHeadingElement.textContent = `${Math.round(layout.robot.headingDegrees)}\u00b0`;
+    worldMapElement.setAttribute(
+      "aria-label",
+      `World view. Robot heading ${Math.round(layout.robot.headingDegrees)} degrees. Target distance ${Math.round(layout.distance)}, bearing ${formatSignedDegrees(layout.bearingDegrees)}. Target ${layout.targetInFov ? "inside" : "outside"} camera field of view.`
+    );
+  }
+
   function updateCameraView() {
     projection = model.projectTarget(world);
     publishSensorData(projection.sensor);
     renderTarget();
+    renderWorldView();
     return projection;
   }
 
@@ -302,9 +436,24 @@
   function init() {
     cameraElement = document.getElementById("camera-view");
     targetElement = document.getElementById("vision-target");
+    worldMapElement = document.getElementById("world-map");
+    worldMapFovElement = document.getElementById("world-map-fov");
+    worldMapCameraAxisElement = document.getElementById("world-map-camera-axis");
+    worldMapRobotElement = document.getElementById("world-map-robot");
+    worldMapRobotLabelElement = document.getElementById("world-map-robot-label");
+    worldMapTargetElement = document.getElementById("world-map-target");
+    worldMapTargetLabelElement = document.getElementById("world-map-target-label");
+    worldMapDistanceElement = document.getElementById("world-map-distance");
+    worldMapBearingElement = document.getElementById("world-map-bearing");
+    worldMapHeadingElement = document.getElementById("world-map-heading");
 
-    if (!cameraElement || !targetElement) {
-      throw new Error("The simulated camera elements are missing.");
+    if (
+      !cameraElement || !targetElement || !worldMapElement || !worldMapFovElement ||
+      !worldMapCameraAxisElement || !worldMapRobotElement || !worldMapRobotLabelElement ||
+      !worldMapTargetElement || !worldMapTargetLabelElement || !worldMapDistanceElement ||
+      !worldMapBearingElement || !worldMapHeadingElement
+    ) {
+      throw new Error("The simulated camera or World View elements are missing.");
     }
 
     targetElement.addEventListener("pointerdown", handlePointerDown);

@@ -104,3 +104,71 @@ function resetProjection() {
   assert.ok(Number.isFinite(close.apparentSize));
   console.log("PASS: apparent-size projection is finite and clamped at close range");
 }
+
+{
+  const world = model.createWorldState();
+  const before = model.layoutWorldView(world);
+  const fixedTargetX = before.target.x;
+  const fixedTargetY = before.target.y;
+
+  model.integrateRobot(world, drive(50, 50), 1);
+  const after = model.layoutWorldView(world);
+
+  assert.ok(after.robot.x > before.robot.x);
+  nearlyEqual(after.target.x, fixedTargetX);
+  nearlyEqual(after.target.y, fixedTargetY);
+  assert.ok(after.distance < before.distance);
+  assert.equal(after.targetInFov, model.projectTarget(world).sensor.exists);
+  console.log("PASS: World View reads the shared world state while a fixed target stays fixed");
+}
+
+{
+  const leftWorld = model.createWorldState();
+  model.integrateRobot(leftWorld, drive(10.5, 30), 1);
+  const leftMap = model.layoutWorldView(leftWorld);
+  assert.ok(leftMap.robot.rotationDegrees < 0);
+  assert.ok(leftMap.fov.direction.y < leftMap.robot.y);
+  assert.equal(leftMap.targetInFov, model.projectTarget(leftWorld).sensor.exists);
+
+  const rightWorld = model.createWorldState();
+  model.integrateRobot(rightWorld, drive(30, 10.5), 1);
+  const rightMap = model.layoutWorldView(rightWorld);
+  assert.ok(rightMap.robot.rotationDegrees > 0);
+  assert.ok(rightMap.fov.direction.y > rightMap.robot.y);
+  assert.equal(rightMap.targetInFov, model.projectTarget(rightWorld).sensor.exists);
+  console.log("PASS: World View robot and exact 60-degree FOV rotate with shared heading");
+}
+
+{
+  const world = model.createWorldState();
+  const before = model.layoutWorldView(world);
+  model.setTargetFromCamera(world, 75, 40);
+  const dragged = model.layoutWorldView(world);
+  assert.notEqual(dragged.target.x, before.target.x);
+  assert.notEqual(dragged.target.y, before.target.y);
+  assert.equal(dragged.targetInFov, model.projectTarget(world).sensor.exists);
+
+  model.resetWorld(world);
+  const reset = model.layoutWorldView(world);
+  nearlyEqual(reset.robot.x, before.robot.x);
+  nearlyEqual(reset.robot.y, before.robot.y);
+  nearlyEqual(reset.target.x, before.target.x);
+  nearlyEqual(reset.target.y, before.target.y);
+  console.log("PASS: target dragging and reset update camera and World View from one state");
+}
+
+{
+  const world = model.createWorldState();
+  world.robot.x = 1000;
+  world.robot.y = 620;
+  world.target.x = -700;
+  world.target.y = -480;
+  const layout = model.layoutWorldView(world);
+  const points = [layout.robot, layout.target];
+
+  points.forEach((point) => {
+    assert.ok(point.x >= 0 && point.x <= layout.width);
+    assert.ok(point.y >= 0 && point.y <= layout.height);
+  });
+  console.log("PASS: World View auto-fit keeps robot and target visible outside normal bounds");
+}

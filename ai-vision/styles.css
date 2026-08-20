@@ -181,7 +181,7 @@ h2 {
   min-height: 620px;
   padding: 10px clamp(10px, 1.25vw, 18px);
   display: grid;
-  grid-template-columns: minmax(520px, 1fr) minmax(340px, 430px);
+  grid-template-columns: minmax(520px, 1fr) minmax(520px, 600px);
   gap: clamp(10px, 1.25vw, 16px);
 }
 
@@ -346,13 +346,25 @@ h2 {
 }
 
 .camera-section,
+.world-section,
 .data-section,
 .console-section {
   padding: 10px 12px;
 }
 
+.visual-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
+}
+
 .camera-section {
   background: rgba(10, 21, 27, 0.48);
+}
+
+.world-section {
+  min-width: 0;
+  border-left: 1px solid var(--line);
+  background: rgba(7, 17, 22, 0.72);
 }
 
 .data-section,
@@ -369,6 +381,15 @@ h2 {
   font-size: 0.77rem;
   font-weight: 700;
   letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.map-hint {
+  color: var(--muted);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.035em;
+  text-align: right;
   text-transform: uppercase;
 }
 
@@ -502,6 +523,130 @@ h2 {
 .camera-axis--y {
   left: 8px;
   top: 7px;
+}
+
+.world-map {
+  width: 100%;
+  height: auto;
+  display: block;
+  overflow: hidden;
+  border: 1px solid rgba(75, 223, 183, 0.34);
+  border-radius: 8px;
+  background: #030a0b;
+  box-shadow:
+    0 0 0 1px rgba(6, 10, 13, 0.8),
+    inset 0 0 24px rgba(1, 4, 7, 0.72);
+}
+
+.world-map-background {
+  fill: #050e12;
+}
+
+.world-map-grid {
+  fill: url("#world-map-grid");
+}
+
+.world-map-grid-line {
+  fill: none;
+  stroke: rgba(85, 158, 145, 0.13);
+  stroke-width: 1;
+}
+
+.world-map-fov {
+  fill: rgba(24, 201, 154, 0.08);
+  stroke: rgba(103, 229, 192, 0.32);
+  stroke-width: 1;
+  stroke-linejoin: round;
+}
+
+.world-map-fov.contains-target {
+  fill: rgba(24, 201, 154, 0.13);
+  stroke: rgba(103, 229, 192, 0.48);
+}
+
+.world-map-camera-axis {
+  stroke: rgba(211, 255, 243, 0.66);
+  stroke-width: 1.4;
+  stroke-dasharray: 3 3;
+}
+
+.world-map-target-ring {
+  fill: rgba(255, 104, 79, 0.12);
+  stroke: rgba(255, 255, 255, 0.74);
+  stroke-width: 1.5;
+}
+
+.world-map-target-core {
+  fill: var(--target);
+  stroke: #ffffff;
+  stroke-width: 1;
+}
+
+.world-map-target-number {
+  fill: #ffffff;
+  font-family: "Space Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 7px;
+  font-weight: 700;
+  dominant-baseline: central;
+  text-anchor: middle;
+}
+
+.world-map-target.is-detected .world-map-target-ring {
+  stroke: var(--teal-dark);
+}
+
+.world-map-robot-body {
+  fill: #dafcf2;
+  stroke: #06231c;
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+}
+
+.world-map-robot-center {
+  fill: var(--teal);
+  stroke: #06231c;
+  stroke-width: 1;
+}
+
+.world-map-label {
+  fill: rgba(221, 244, 238, 0.74);
+  font-family: "Space Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 7px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.world-readout {
+  margin: 7px 0 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.world-readout div {
+  min-width: 0;
+  padding: 4px 5px;
+  border: 1px solid rgba(102, 168, 159, 0.14);
+  border-radius: 5px;
+  background: rgba(4, 13, 16, 0.72);
+}
+
+.world-readout dt {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.55rem;
+  font-weight: 700;
+  letter-spacing: 0.045em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+}
+
+.world-readout dd {
+  margin: 1px 0 0;
+  color: var(--ink);
+  font-family: "Space Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.72rem;
+  font-weight: 700;
 }
 
 .sensor-data {
@@ -654,7 +799,7 @@ h2 {
   fill: #3b5960 !important;
 }
 
-@media (max-width: 930px) {
+@media (max-width: 1120px) {
   .workbench {
     height: auto;
     min-height: calc(100dvh - 64px);
@@ -668,7 +813,7 @@ h2 {
 
   .sensor-panel {
     width: 100%;
-    max-width: 680px;
+    max-width: 880px;
     justify-self: center;
   }
 }
@@ -742,9 +887,19 @@ h2 {
   }
 
   .camera-section,
+  .world-section,
   .data-section,
   .console-section {
     padding: 10px;
+  }
+
+  .visual-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .world-section {
+    border-top: 1px solid var(--line);
+    border-left: 0;
   }
 
   .data-heading-row {

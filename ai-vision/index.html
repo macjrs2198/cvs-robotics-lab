@@ -16,7 +16,7 @@
       href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap"
       rel="stylesheet"
     >
-    <link rel="stylesheet" href="./styles.css?v=2.0">
+    <link rel="stylesheet" href="./styles.css?v=2.1">
     <link rel="stylesheet" href="../shared/controls.css?v=1.0">
   </head>
   <body>
@@ -73,34 +73,83 @@
       </section>
 
       <aside class="sensor-panel" aria-labelledby="camera-heading">
-        <section class="camera-section">
-          <div class="section-heading-row">
-            <div>
-              <p class="section-label">SIMULATED CAMERA · 320 × 240</p>
-              <h2 id="camera-heading">Camera view</h2>
+        <div class="visual-grid">
+          <section class="camera-section">
+            <div class="section-heading-row">
+              <div>
+                <p class="section-label">SIMULATED CAMERA · 320 × 240</p>
+                <h2 id="camera-heading">Camera view</h2>
+              </div>
+              <span class="drag-hint">Drag target</span>
             </div>
-            <span class="drag-hint">Drag target</span>
-          </div>
 
-          <div id="camera-view" class="camera-view" aria-label="Simulated AI Vision camera view">
-            <span class="camera-corner camera-corner--top-left" aria-hidden="true"></span>
-            <span class="camera-corner camera-corner--top-right" aria-hidden="true"></span>
-            <span class="camera-corner camera-corner--bottom-left" aria-hidden="true"></span>
-            <span class="camera-corner camera-corner--bottom-right" aria-hidden="true"></span>
-            <span class="camera-crosshair camera-crosshair--horizontal" aria-hidden="true"></span>
-            <span class="camera-crosshair camera-crosshair--vertical" aria-hidden="true"></span>
-            <div
-              id="vision-target"
-              class="vision-target"
-              role="img"
-              aria-label="Draggable target, object ID 1"
-            >
-              <span>1</span>
+            <div id="camera-view" class="camera-view" aria-label="Simulated AI Vision camera view">
+              <span class="camera-corner camera-corner--top-left" aria-hidden="true"></span>
+              <span class="camera-corner camera-corner--top-right" aria-hidden="true"></span>
+              <span class="camera-corner camera-corner--bottom-left" aria-hidden="true"></span>
+              <span class="camera-corner camera-corner--bottom-right" aria-hidden="true"></span>
+              <span class="camera-crosshair camera-crosshair--horizontal" aria-hidden="true"></span>
+              <span class="camera-crosshair camera-crosshair--vertical" aria-hidden="true"></span>
+              <div
+                id="vision-target"
+                class="vision-target"
+                role="img"
+                aria-label="Draggable target, object ID 1"
+              >
+                <span>1</span>
+              </div>
+              <span class="camera-axis camera-axis--x" aria-hidden="true">X 0–320</span>
+              <span class="camera-axis camera-axis--y" aria-hidden="true">Y 0–240</span>
             </div>
-            <span class="camera-axis camera-axis--x" aria-hidden="true">X 0–320</span>
-            <span class="camera-axis camera-axis--y" aria-hidden="true">Y 0–240</span>
-          </div>
-        </section>
+          </section>
+
+          <section class="world-section" aria-labelledby="world-heading">
+            <div class="section-heading-row">
+              <div>
+                <p class="section-label">WORLD VIEW</p>
+                <h2 id="world-heading">Robot / target map</h2>
+              </div>
+              <span class="map-hint">Teaching view</span>
+            </div>
+
+            <svg
+              id="world-map"
+              class="world-map"
+              viewBox="0 0 320 160"
+              role="img"
+              aria-label="World view showing robot, target, heading, and camera field of view"
+            >
+              <title>Robot and target world view</title>
+              <desc>The robot marker and camera field-of-view wedge move using the same world state as the simulated camera.</desc>
+              <defs>
+                <pattern id="world-map-grid" width="20" height="20" patternUnits="userSpaceOnUse">
+                  <path d="M 20 0 L 0 0 0 20" class="world-map-grid-line"></path>
+                </pattern>
+              </defs>
+              <rect class="world-map-background" x="0" y="0" width="320" height="160"></rect>
+              <rect class="world-map-grid" x="0" y="0" width="320" height="160"></rect>
+              <path id="world-map-fov" class="world-map-fov" d="M 160 80 L 320 0 L 320 160 Z"></path>
+              <line id="world-map-camera-axis" class="world-map-camera-axis" x1="160" y1="80" x2="206" y2="80"></line>
+              <g id="world-map-target" class="world-map-target" transform="translate(280 80)">
+                <circle class="world-map-target-ring" r="9"></circle>
+                <circle class="world-map-target-core" r="6"></circle>
+                <text class="world-map-target-number" x="0" y="0">1</text>
+              </g>
+              <text id="world-map-target-label" class="world-map-label" x="293" y="70">TARGET</text>
+              <g id="world-map-robot" class="world-map-robot" transform="translate(160 80)">
+                <path class="world-map-robot-body" d="M 11 0 L -7 -8 L -4 0 L -7 8 Z"></path>
+                <circle class="world-map-robot-center" r="2.6"></circle>
+              </g>
+              <text id="world-map-robot-label" class="world-map-label" x="173" y="98">ROBOT</text>
+            </svg>
+
+            <dl class="world-readout" aria-label="World view measurements">
+              <div><dt>Distance</dt><dd id="world-map-distance">300</dd></div>
+              <div><dt>Bearing</dt><dd id="world-map-bearing">0°</dd></div>
+              <div><dt>Heading</dt><dd id="world-map-heading">0°</dd></div>
+            </dl>
+          </section>
+        </div>
 
         <section class="data-section" aria-labelledby="data-heading">
           <div class="data-heading-row">
@@ -149,7 +198,7 @@
     <script src="../shared/blockly/core-blocks.js?v=1.0"></script>
     <script src="../shared/blockly/core-toolbox.js?v=1.0"></script>
     <script src="../shared/runtime/program-control.js?v=1.0"></script>
-    <script src="./simulator.js?v=1.1"></script>
+    <script src="./simulator.js?v=1.2"></script>
     <script src="./drivetrain.js"></script>
     <script src="./blocks.js?v=2.0"></script>
     <script src="./app.js?v=2.0"></script>
