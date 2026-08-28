@@ -1,12 +1,13 @@
 # CVS Robotics Lab
 
-CVS Robotics Lab is a static browser package containing three independent Blockly robotics simulators:
+CVS Robotics Lab is a static browser package containing three independent Blockly robotics simulators and a two-player robot battle game:
 
 **Live student site:** https://macjrs2198.github.io/cvs-robotics-lab/
 
 - **CVS Digital Feedback** — digital sensors, line following, and autonomous feedback
 - **CVS AI Vision** — machine vision and autonomous sensor response
 - **CVS Analog Feedback** — potentiometers, motor control, and position feedback
+- **Robot Rumble** — two-player keyboard robot combat with directional blocking and arena hazards
 
 ## Run Locally
 

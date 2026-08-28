@@ -85,7 +85,7 @@ h1 {
 
 .launch-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 14px;
 }
 
@@ -114,6 +114,7 @@ h1 {
 .launch-card--vision { --accent: var(--cyan); }
 .launch-card--digital { --accent: var(--green); }
 .launch-card--analog { --accent: var(--amber); }
+.launch-card--rumble { --accent: #ff7a32; }
 
 .card-index {
   color: var(--accent);
@@ -150,7 +151,11 @@ h1 {
   font-size: 0.6rem;
 }
 
-@media (max-width: 760px) {
+@media (max-width: 980px) {
+  .launch-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 620px) {
   .launcher-shell { align-content: start; }
   .launch-grid { grid-template-columns: 1fr; }
   .launch-card { min-height: 180px; }

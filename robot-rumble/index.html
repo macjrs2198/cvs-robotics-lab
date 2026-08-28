@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Robot Rumble Arena, a two-player keyboard battle game from the CVS Robotics Lab."
+    />
+    <meta name="theme-color" content="#090d10" />
+    <title>Robot Rumble Arena · CVS Robotics Lab</title>
+    <link rel="icon" href="../assets/stormy.png" type="image/png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Space+Mono:wght@400;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css?v=1.0" />
+  </head>
+  <body>
+    <main class="game-shell">
+      <header class="game-header">
+        <div>
+          <a class="lab-link" href="../">← CVS Robotics Lab</a>
+          <p class="eyebrow">TWO PLAYERS · ONE KEYBOARD</p>
+          <h1>ROBOT <span>RUMBLE</span></h1>
+        </div>
+        <div class="arena-meta">
+          <span class="keyboard-note">KEYBOARD-FIRST</span>
+          <div id="arena-label" class="arena-label" aria-label="Arena layout 1">
+            <span class="status-dot" aria-hidden="true"></span>
+            ARENA 01
+          </div>
+        </div>
+      </header>
+
+      <section class="scoreboard" aria-label="Match score">
+        <article class="player-card player-one">
+          <div class="player-heading">
+            <div><span class="player-number">01</span><strong>GREEN MACHINE</strong></div>
+            <span id="player-one-damage" class="damage-label">0 / 5 HITS</span>
+          </div>
+          <div
+            id="player-one-progress"
+            class="damage-progress green-progress"
+            role="progressbar"
+            aria-label="Green Machine has taken 0 of 5 hits"
+            aria-valuemin="0"
+            aria-valuemax="5"
+            aria-valuenow="0"
+          ><span></span></div>
+        </article>
+
+        <div class="versus" aria-hidden="true">VS</div>
+
+        <article class="player-card player-two">
+          <div class="player-heading">
+            <div><span class="player-number">02</span><strong>ORANGE CRUSH</strong></div>
+            <span id="player-two-damage" class="damage-label">0 / 5 HITS</span>
+          </div>
+          <div
+            id="player-two-progress"
+            class="damage-progress orange-progress"
+            role="progressbar"
+            aria-label="Orange Crush has taken 0 of 5 hits"
+            aria-valuemin="0"
+            aria-valuemax="5"
+            aria-valuenow="0"
+          ><span></span></div>
+        </article>
+      </section>
+
+      <section class="arena-frame" aria-labelledby="arena-heading">
+        <h2 id="arena-heading" class="visually-hidden">Robot battle arena</h2>
+        <canvas
+          id="arena-canvas"
+          width="1100"
+          height="650"
+          tabindex="0"
+          aria-label="Top-down robot battle arena. Player one uses W A S D, F to punch, and C to block. Player two uses arrow keys, L to punch, and P to block."
+        >Your browser does not support the Robot Rumble canvas.</canvas>
+
+        <div id="match-overlay" class="match-overlay" aria-live="assertive">
+          <p id="overlay-kicker" class="overlay-kicker">TWO PLAYERS · ONE KEYBOARD</p>
+          <h2 id="overlay-title">ENTER THE ARENA</h2>
+          <p id="overlay-copy">Land five clean punches. Face your opponent to block an incoming hit.</p>
+          <button id="start-button" class="start-button" type="button">START MATCH</button>
+        </div>
+      </section>
+
+      <section class="controls" aria-label="Player controls">
+        <article class="control-card green-controls">
+          <div><span class="control-player">PLAYER 1</span><strong>GREEN MACHINE</strong></div>
+          <div class="control-groups">
+            <span><span class="key-row"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span><em>MOVE</em></span>
+            <span><span class="key-row"><kbd>F</kbd></span><em>PUNCH</em></span>
+            <span><span class="key-row"><kbd>C</kbd></span><em>BLOCK</em></span>
+          </div>
+        </article>
+
+        <article class="control-card orange-controls">
+          <div><span class="control-player">PLAYER 2</span><strong>ORANGE CRUSH</strong></div>
+          <div class="control-groups">
+            <span><span class="key-row"><kbd>↑</kbd><kbd>←</kbd><kbd>↓</kbd><kbd>→</kbd></span><em>MOVE</em></span>
+            <span><span class="key-row"><kbd>L</kbd></span><em>PUNCH</em></span>
+            <span><span class="key-row"><kbd>P</kbd></span><em>BLOCK</em></span>
+          </div>
+        </article>
+      </section>
+
+      <footer class="game-footer">
+        <p><span>5</span> CLEAN HITS = KNOCKOUT</p>
+        <button id="randomize-button" class="arena-button" type="button">RANDOMIZE ARENA</button>
+      </footer>
+    </main>
+
+    <script src="./game.js?v=1.0"></script>
+  </body>
+</html>
