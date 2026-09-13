@@ -1,0 +1,197 @@
+{
+  "format": "cvs-robotics-program",
+  "formatVersion": 1,
+  "app": "cvs-ai-vision",
+  "appVersion": "3.0",
+  "workspace": {
+    "blocks": {
+      "languageVersion": 0,
+      "blocks": [
+        {
+          "type": "event_when_started",
+          "id": "gate11-start",
+          "x": 36,
+          "y": 30,
+          "next": {
+            "block": {
+              "type": "vision_look_forward",
+              "id": "gate11-look-forward",
+              "next": {
+                "block": {
+                  "type": "vision_take_snapshot",
+                  "id": "gate11-wall-snapshot",
+                  "fields": {
+                    "SIGNATURE": "FIDUCIAL_IDS"
+                  },
+                  "next": {
+                    "block": {
+                      "type": "vision_set_object_item",
+                      "id": "gate11-wall-item",
+                      "inputs": {
+                        "ITEM": {
+                          "shadow": {
+                            "type": "math_number",
+                            "id": "gate11-wall-item-number",
+                            "fields": {
+                              "NUM": 2
+                            }
+                          }
+                        }
+                      },
+                      "next": {
+                        "block": {
+                          "type": "controls_if",
+                          "id": "gate11-wall-if",
+                          "inputs": {
+                            "IF0": {
+                              "block": {
+                                "type": "vision_is_fiducial_id",
+                                "id": "gate11-wall-id-test",
+                                "inputs": {
+                                  "ID": {
+                                    "shadow": {
+                                      "type": "math_number",
+                                      "id": "gate11-wall-id-number",
+                                      "fields": {
+                                        "NUM": 15
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            "DO0": {
+                              "block": {
+                                "type": "core_print_text",
+                                "id": "gate11-wall-output",
+                                "fields": {
+                                  "TEXT": "WALL 15 VISIBLE"
+                                },
+                                "next": {
+                                  "block": {
+                                    "type": "drive_set_turn_speed",
+                                    "id": "gate11-turn-speed",
+                                    "fields": {
+                                      "SPEED": 3
+                                    },
+                                    "next": {
+                                      "block": {
+                                        "type": "drive_turn_left",
+                                        "id": "gate11-turn-left",
+                                        "next": {
+                                          "block": {
+                                            "type": "core_wait_seconds",
+                                            "id": "gate11-turn-wait",
+                                            "inputs": {
+                                              "SECONDS": {
+                                                "shadow": {
+                                                  "type": "math_number",
+                                                  "id": "gate11-turn-wait-number",
+                                                  "fields": {
+                                                    "NUM": 0.2
+                                                  }
+                                                }
+                                              }
+                                            },
+                                            "next": {
+                                              "block": {
+                                                "type": "drive_stop",
+                                                "id": "gate11-turn-stop"
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          },
+                          "next": {
+                            "block": {
+                              "type": "vision_look_down",
+                              "id": "gate11-look-down",
+                              "next": {
+                                "block": {
+                                  "type": "vision_take_snapshot",
+                                  "id": "gate11-table-snapshot",
+                                  "fields": {
+                                    "SIGNATURE": "FIDUCIAL_IDS"
+                                  },
+                                  "next": {
+                                    "block": {
+                                      "type": "vision_set_object_item",
+                                      "id": "gate11-table-item",
+                                      "inputs": {
+                                        "ITEM": {
+                                          "shadow": {
+                                            "type": "math_number",
+                                            "id": "gate11-table-item-number",
+                                            "fields": {
+                                              "NUM": 1
+                                            }
+                                          }
+                                        }
+                                      },
+                                      "next": {
+                                        "block": {
+                                          "type": "controls_if",
+                                          "id": "gate11-table-if",
+                                          "inputs": {
+                                            "IF0": {
+                                              "block": {
+                                                "type": "vision_is_fiducial_id",
+                                                "id": "gate11-table-id-test",
+                                                "inputs": {
+                                                  "ID": {
+                                                    "shadow": {
+                                                      "type": "math_number",
+                                                      "id": "gate11-table-id-number",
+                                                      "fields": {
+                                                        "NUM": 4
+                                                      }
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            },
+                                            "DO0": {
+                                              "block": {
+                                                "type": "core_print_text",
+                                                "id": "gate11-table-output",
+                                                "fields": {
+                                                  "TEXT": "TABLE 4 VISIBLE"
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "settings": {
+    "scene": "byte-to-bite-dining-room",
+    "camera": {
+      "mount": "front",
+      "height": 12
+    },
+    "startPose": "table-4-north"
+  }
+}

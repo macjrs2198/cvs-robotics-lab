@@ -5,7 +5,7 @@
   const PROGRAM_FORMAT = "cvs-robotics-program";
   const PROGRAM_FORMAT_VERSION = 1;
   const APP_ID = "cvs-ai-vision";
-  const APP_VERSION = "2.1";
+  const APP_VERSION = "3.0";
   const APP_DISPLAY_NAME = "CVS AI Vision";
   const APP_DISPLAY_NAMES = Object.freeze({
     "cvs-ai-vision": APP_DISPLAY_NAME,
@@ -15,6 +15,10 @@
   const FOREVER_DELAY_MS = 140;
   const MAX_CONSOLE_LINES = 80;
   const SNAPSHOT_GUIDANCE = "This program needs Take Snapshot inside its sensing loop to refresh camera readings.";
+  const BALL_SCENE = "ball";
+  const DINING_ROOM_SCENE = "byte-to-bite-dining-room";
+  const TARGET_SIGNATURE = "TARGET";
+  const FIDUCIAL_SIGNATURE = "FIDUCIAL_IDS";
 
   let workspace = null;
   let running = false;
@@ -22,6 +26,7 @@
   let blockLibrary = null;
   let saveStatusTimer = null;
   let snapshotGuidanceShown = false;
+  let activeVisionSignature = null;
   const variables = new Map();
 
   const elements = {};
@@ -44,6 +49,8 @@
     elements.consolePlaceholder = document.getElementById("console-placeholder");
     elements.blocklyError = document.getElementById("blockly-error");
     elements.dataExists = document.getElementById("data-exists");
+    elements.dataCount = document.getElementById("data-count");
+    elements.dataSelectedItem = document.getElementById("data-selected-item");
     elements.dataCenterX = document.getElementById("data-center-x");
     elements.dataCenterY = document.getElementById("data-center-y");
     elements.dataWidth = document.getElementById("data-width");
@@ -79,15 +86,51 @@
     }, 2600);
   }
 
+  function getSimulatorSettings() {
+    if (!window.VisionSimulator || typeof window.VisionSimulator.getSettings !== "function") {
+      return { scene: BALL_SCENE };
+    }
+
+    const settings = window.VisionSimulator.getSettings();
+    return settings && typeof settings === "object" ? settings : { scene: BALL_SCENE };
+  }
+
+  function defaultSnapshotSignature(scene = getSimulatorSettings().scene) {
+    return scene === DINING_ROOM_SCENE ? FIDUCIAL_SIGNATURE : TARGET_SIGNATURE;
+  }
+
+  function resolveSnapshotSignature(block) {
+    const signature = block && typeof block.getFieldValue === "function"
+      ? block.getFieldValue("SIGNATURE")
+      : null;
+    return [TARGET_SIGNATURE, FIDUCIAL_SIGNATURE].includes(signature)
+      ? signature
+      : defaultSnapshotSignature();
+  }
+
   function renderSensorData(sensor) {
-    elements.dataExists.textContent = sensor.exists ? "TRUE" : "FALSE";
-    elements.dataExists.classList.toggle("is-false", !sensor.exists);
-    elements.dataCenterX.textContent = sensor.exists ? sensor.centerX : "\u2014";
-    elements.dataCenterY.textContent = sensor.exists ? sensor.centerY : "\u2014";
-    elements.dataWidth.textContent = sensor.exists ? sensor.width : "\u2014";
-    elements.dataHeight.textContent = sensor.exists ? sensor.height : "\u2014";
-    elements.dataId.textContent = sensor.exists ? sensor.id : "\u2014";
-    elements.dataConfidence.textContent = sensor.exists ? sensor.confidence : "\u2014";
+    const safeSensor = sensor && typeof sensor === "object" ? sensor : {};
+    const hasObjects = Boolean(safeSensor.exists);
+    const selectedExists = typeof safeSensor.selectedExists === "boolean"
+      ? safeSensor.selectedExists
+      : hasObjects && Number(safeSensor.id) !== -1;
+    const isFiducialScene = getSimulatorSettings().scene === DINING_ROOM_SCENE;
+    const selectedItem = Number.isFinite(Number(safeSensor.selectedItem))
+      ? Math.max(1, Math.trunc(Number(safeSensor.selectedItem)))
+      : 1;
+
+    elements.dataExists.textContent = hasObjects ? "TRUE" : "FALSE";
+    elements.dataExists.classList.toggle("is-false", !hasObjects);
+    if (elements.dataCount) elements.dataCount.textContent = safeSensor.captured ? String(Number(safeSensor.count) || 0) : "\u2014";
+    if (elements.dataSelectedItem) elements.dataSelectedItem.textContent = safeSensor.captured ? String(selectedItem) : "\u2014";
+    elements.dataCenterX.textContent = selectedExists ? safeSensor.centerX : "\u2014";
+    elements.dataCenterY.textContent = selectedExists ? safeSensor.centerY : "\u2014";
+    elements.dataWidth.textContent = selectedExists ? safeSensor.width : "\u2014";
+    elements.dataHeight.textContent = selectedExists ? safeSensor.height : "\u2014";
+    elements.dataId.textContent = selectedExists ? safeSensor.id : "\u2014";
+    elements.dataConfidence.textContent = selectedExists && !isFiducialScene && safeSensor.confidenceSupported !== false
+      ? safeSensor.confidence
+      : "\u2014";
   }
 
   function renderDrivetrain(state) {
@@ -158,12 +201,31 @@
   }
 
   function readVisionSensor(property) {
-    if (!window.visionSensor.captured && !snapshotGuidanceShown) {
+    const sensor = window.visionSensor && typeof window.visionSensor === "object"
+      ? window.visionSensor
+      : {};
+
+    if (!sensor.captured && !snapshotGuidanceShown) {
       snapshotGuidanceShown = true;
       printToConsole(SNAPSHOT_GUIDANCE, true);
     }
 
-    return window.visionSensor[property];
+    if (property === "exists") return Boolean(sensor.exists);
+    if (property === "id") {
+      return Number.isFinite(Number(sensor.id)) ? Math.trunc(Number(sensor.id)) : -1;
+    }
+    if (
+      property === "confidence" &&
+      (
+        getSimulatorSettings().scene === DINING_ROOM_SCENE ||
+        activeVisionSignature === FIDUCIAL_SIGNATURE ||
+        sensor.confidenceSupported === false
+      )
+    ) {
+      return 0;
+    }
+
+    return Number.isFinite(Number(sensor[property])) ? Number(sensor[property]) : 0;
   }
 
   function evaluateValue(block) {
@@ -174,6 +236,15 @@
     switch (block.type) {
       case "vision_exists":
         return readVisionSensor("exists");
+      case "vision_object_count":
+        return readVisionSensor("count");
+      case "vision_is_fiducial_id": {
+        const fiducialId = Number(evaluateValue(inputBlock(block, "ID")));
+        return window.visionSensor?.type === "fiducial" &&
+          Number.isInteger(fiducialId) &&
+          fiducialId >= 0 &&
+          readVisionSensor("id") === fiducialId;
+      }
       case "vision_center_x":
         return readVisionSensor("centerX");
       case "vision_center_y":
@@ -309,8 +380,25 @@
         case "output_print_value":
           printToConsole(evaluateValue(inputBlock(block, "VALUE")));
           break;
-        case "vision_take_snapshot":
-          window.VisionSimulator.takeSnapshot();
+        case "vision_take_snapshot": {
+          const signature = resolveSnapshotSignature(block);
+          activeVisionSignature = signature;
+          window.VisionSimulator.takeSnapshot(signature);
+          break;
+        }
+        case "vision_set_object_item": {
+          const studentItem = Math.max(
+            1,
+            Math.trunc(Number(evaluateValue(inputBlock(block, "ITEM"))) || 1),
+          );
+          window.VisionSimulator.setSnapshotObjectItem(studentItem);
+          break;
+        }
+        case "vision_look_forward":
+          window.VisionSimulator.setHeadPreset("forward");
+          break;
+        case "vision_look_down":
+          window.VisionSimulator.setHeadPreset("down");
           break;
         case "drive_forward":
           window.Drivetrain.forward();
@@ -361,6 +449,7 @@
     clearOutput();
     variables.clear();
     snapshotGuidanceShown = false;
+    activeVisionSignature = null;
     window.VisionSimulator.clearSnapshot();
 
     const startBlocks = workspace
@@ -391,15 +480,116 @@
     programControl.reset(() => {
       window.VisionSimulator.resetWorld();
       variables.clear();
+      activeVisionSignature = null;
       clearOutput();
     });
     showSaveStatus("Simulator reset");
   }
 
+  function isRecord(value) {
+    return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+  }
+
+  function validateWorkspaceState(workspaceState) {
+    if (!isRecord(workspaceState)) {
+      throw new Error("The program does not contain a valid Blockly workspace.");
+    }
+    return workspaceState;
+  }
+
+  function visitSerializedBlocks(workspaceState, visitor) {
+    const topBlocks = workspaceState?.blocks?.blocks;
+    if (!Array.isArray(topBlocks)) return;
+
+    function visit(blockState) {
+      if (!isRecord(blockState)) return;
+      visitor(blockState);
+
+      Object.values(blockState.inputs || {}).forEach((inputState) => {
+        if (!isRecord(inputState)) return;
+        visit(inputState.block);
+        visit(inputState.shadow);
+      });
+      visit(blockState.next?.block);
+    }
+
+    topBlocks.forEach(visit);
+  }
+
+  function migrateLegacySnapshotSignatures(workspaceState, scene) {
+    const migratedState = JSON.parse(JSON.stringify(validateWorkspaceState(workspaceState)));
+    const fallbackSignature = defaultSnapshotSignature(scene);
+
+    visitSerializedBlocks(migratedState, (blockState) => {
+      if (blockState.type !== "vision_take_snapshot") return;
+      if (isRecord(blockState.fields) && Object.hasOwn(blockState.fields, "SIGNATURE")) return;
+      blockState.fields = { ...(isRecord(blockState.fields) ? blockState.fields : {}), SIGNATURE: fallbackSignature };
+    });
+
+    return migratedState;
+  }
+
+  function normalizeProgramSettings(settings) {
+    if (!isRecord(settings)) {
+      throw new Error("The program file does not contain valid simulator settings.");
+    }
+    if (!window.VisionSimulator || typeof window.VisionSimulator.normalizeSettings !== "function") {
+      throw new Error("Simulator settings are unavailable.");
+    }
+
+    const normalizedSettings = window.VisionSimulator.normalizeSettings(settings);
+    if (!isRecord(normalizedSettings)) {
+      throw new Error("The program file does not contain valid simulator settings.");
+    }
+    return normalizedSettings;
+  }
+
+  function getProgramSettings() {
+    return normalizeProgramSettings(getSimulatorSettings());
+  }
+
+  function restoreProgramSettings(normalizedSettings) {
+    if (!window.VisionSimulator || typeof window.VisionSimulator.applySettings !== "function") {
+      throw new Error("Simulator settings are unavailable.");
+    }
+    window.VisionSimulator.applySettings(normalizedSettings);
+  }
+
+  function replaceProgramTransactionally(nextWorkspaceState, normalizedSettings = null) {
+    const previousWorkspace = Blockly.serialization.workspaces.save(workspace);
+    const previousSettings = getProgramSettings();
+    const nextScene = normalizedSettings?.scene || previousSettings.scene;
+    const migratedWorkspace = migrateLegacySnapshotSignatures(nextWorkspaceState, nextScene);
+    let workspaceWasMutated = false;
+
+    try {
+      if (normalizedSettings) restoreProgramSettings(normalizedSettings);
+      workspaceWasMutated = true;
+      workspace.clear();
+      Blockly.serialization.workspaces.load(migratedWorkspace, workspace);
+      activeVisionSignature = null;
+    } catch (error) {
+      try {
+        restoreProgramSettings(previousSettings);
+      } catch (rollbackError) {
+        console.error(rollbackError);
+      }
+
+      if (workspaceWasMutated) {
+        try {
+          workspace.clear();
+          Blockly.serialization.workspaces.load(previousWorkspace, workspace);
+        } catch (rollbackError) {
+          console.error(rollbackError);
+        }
+      }
+      throw error;
+    }
+  }
+
   function saveProgram() {
     try {
-      const programState = Blockly.serialization.workspaces.save(workspace);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(programState));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(createProgramFile()));
       showSaveStatus("Program saved on this device");
     } catch (error) {
       showSaveStatus("Could not save program");
@@ -416,23 +606,23 @@
         return;
       }
 
+      const savedState = JSON.parse(savedProgram);
+      const validatedProgram = savedState?.format === PROGRAM_FORMAT
+        ? validateProgramFile(savedState)
+        : {
+          workspace: validateWorkspaceState(savedState),
+          // Raw workspace saves predate scenes and can only belong to the
+          // original Ball sandbox. Restore that context before migration.
+          settings: normalizeProgramSettings({})
+        };
       stopProgram();
-      Blockly.serialization.workspaces.load(JSON.parse(savedProgram), workspace);
+      replaceProgramTransactionally(validatedProgram.workspace, validatedProgram.settings);
+      clearOutput();
       showSaveStatus("Saved program loaded");
     } catch (error) {
       showSaveStatus("Saved program could not be loaded");
       console.error(error);
     }
-  }
-
-  function getProgramSettings() {
-    // The draggable target and drivetrain are runtime state, not project settings.
-    return {};
-  }
-
-  function restoreProgramSettings(settings) {
-    // Reserved for future project-level AI Vision settings.
-    void settings;
   }
 
   function createProgramFile() {
@@ -478,12 +668,9 @@
       const sourceApp = APP_DISPLAY_NAMES[programFile.app] || "another CVS simulator";
       throw new Error(`This program was created for ${sourceApp} and cannot be loaded into ${APP_DISPLAY_NAME}.`);
     }
-    if (!programFile.workspace || typeof programFile.workspace !== "object" || Array.isArray(programFile.workspace)) {
-      throw new Error("The program file does not contain a valid Blockly workspace.");
-    }
-    if (!programFile.settings || typeof programFile.settings !== "object" || Array.isArray(programFile.settings)) {
-      throw new Error("The program file does not contain valid simulator settings.");
-    }
+    const workspaceState = validateWorkspaceState(programFile.workspace);
+    const normalizedSettings = normalizeProgramSettings(programFile.settings);
+    return { workspace: workspaceState, settings: normalizedSettings };
   }
 
   async function importProgram(event) {
@@ -499,26 +686,21 @@
       return;
     }
 
+    let validatedProgram;
     try {
-      validateProgramFile(programFile);
+      validatedProgram = validateProgramFile(programFile);
     } catch (error) {
       showSaveStatus(error.message);
       return;
     }
 
-    const currentWorkspace = Blockly.serialization.workspaces.save(workspace);
     stopProgram();
 
     try {
-      workspace.clear();
-      Blockly.serialization.workspaces.load(programFile.workspace, workspace);
-      restoreProgramSettings(programFile.settings);
-      window.VisionSimulator.resetWorld();
+      replaceProgramTransactionally(validatedProgram.workspace, validatedProgram.settings);
       clearOutput();
       showSaveStatus("Portable program imported");
     } catch (error) {
-      workspace.clear();
-      Blockly.serialization.workspaces.load(currentWorkspace, workspace);
       showSaveStatus("Program file could not be loaded");
       console.error(error);
     }
@@ -607,6 +789,10 @@
     elements.clearButton.addEventListener("click", clearProgram);
     window.addEventListener("visiondatachange", (event) => renderSensorData(event.detail));
     window.addEventListener("drivetrainchange", (event) => renderDrivetrain(event.detail));
+    window.addEventListener("visionsettingschange", () => {
+      stopProgram("settings changed");
+      activeVisionSignature = null;
+    });
   }
 
   function init() {

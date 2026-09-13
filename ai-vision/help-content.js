@@ -13,23 +13,27 @@
   // When a user-facing feature changes, update this Help definition in the same change.
   return Object.freeze({
     title: "CVS AI Vision",
-    purpose: "Use Blockly to control a simulated robot using information from an AI Vision camera.",
+    purpose: "Use Blockly to control a simulated robot from explicit AI Vision snapshots in either the ball sandbox or the Byte to Bite Dining Room.",
     instructions: Object.freeze([
       Object.freeze({
-        heading: "Live Camera and Last Snapshot",
-        body: "The camera preview updates live. Program readings come only from the most recent Take Snapshot block.",
+        heading: "Choose a scene and safe start",
+        body: "Use Setup while stopped. The Dining Room offers only checked starting poses; tables and walls are solid, while the four visible corner openings remain passable.",
       }),
       Object.freeze({
-        heading: "Refresh while tracking",
-        body: "Repeat Take Snapshot inside the sensing loop whenever the program needs refreshed camera readings.",
+        heading: "Place the one camera",
+        body: "Choose Front, Rear, Left, or Right and a 5.5–24 inch lens height. Forward looks straight out from that side; Down tilts 60 degrees downward and outward without turning or stopping the robot.",
       }),
       Object.freeze({
-        heading: "Check Object Exists",
-        body: "Check Object Exists before using object position, size, ID, or confidence properties.",
+        heading: "Live Camera and explicit snapshots",
+        body: "The preview is live, but program readings change only after Take Snapshot. Check Object Exists; in the Dining Room, read Count, then select item 1, 2, and so on before checking its fiducial ID or image position.",
+      }),
+      Object.freeze({
+        heading: "Fiducial limits",
+        body: "Dining markers model VEX Circle21h7 AprilTag IDs 0–20. Cut-off, rear-facing, too-small, or obstructed patterns are omitted; confidence is not reported for tags.",
       }),
       Object.freeze({
         heading: "World View is a debug view",
-        body: "World View is a teaching and debugging aid. It is not another sensor available to the robot program.",
+        body: "World View shows chassis heading, camera mount/view, and physical blocking for teaching. Those true coordinates and collision details are not Blockly sensors.",
       }),
       Object.freeze({ common: "runtime" }),
       Object.freeze({ common: "blockLibrary" }),

@@ -73,49 +73,63 @@
 
   function createEmptySensorFields() {
     return {
-      exists: false,
-      count: 0,
       centerX: 0,
       centerY: 0,
       width: 0,
       height: 0,
+      originX: 0,
+      originY: 0,
       id: -1,
-      confidence: 0
+      tagID: -1,
+      confidence: 0,
+      confidenceSupported: false,
+      type: "none"
     };
   }
 
   function copyDetectionRecord(record) {
+    const width = Math.max(0, Math.round(Number(record.width) || 0));
+    const height = Math.max(0, Math.round(Number(record.height) || 0));
+    const centerX = Math.round(Number(record.centerX) || 0);
+    const centerY = Math.round(Number(record.centerY) || 0);
+    const recordId = record.id ?? record.tagID;
+    const id = Number.isFinite(Number(recordId)) ? Math.round(Number(recordId)) : -1;
+    const confidenceSupported = record.confidenceSupported !== false && Number.isFinite(Number(record.confidence));
     return Object.freeze({
-      centerX: Math.round(Number(record.centerX) || 0),
-      centerY: Math.round(Number(record.centerY) || 0),
-      width: Math.max(0, Math.round(Number(record.width) || 0)),
-      height: Math.max(0, Math.round(Number(record.height) || 0)),
-      id: Number.isFinite(Number(record.id)) ? Math.round(Number(record.id)) : -1,
-      confidence: clamp(Math.round(Number(record.confidence) || 0), 0, 100)
+      centerX,
+      centerY,
+      width,
+      height,
+      originX: Math.round(Number.isFinite(Number(record.originX)) ? Number(record.originX) : centerX - width / 2),
+      originY: Math.round(Number.isFinite(Number(record.originY)) ? Number(record.originY) : centerY - height / 2),
+      id,
+      tagID: id,
+      confidence: confidenceSupported ? clamp(Math.round(Number(record.confidence)), 0, 100) : 0,
+      confidenceSupported,
+      type: typeof record.type === "string" ? record.type : "target"
+    });
+  }
+
+  function buildSnapshotView(captured, objects, requestedItem = 1) {
+    const numericItem = Math.floor(Number(requestedItem));
+    const selectedItem = Number.isFinite(numericItem) && numericItem >= 1 ? numericItem : 1;
+    const selected = objects[selectedItem - 1];
+    const sensorFields = selected ? { ...selected } : createEmptySensorFields();
+
+    return Object.freeze({
+      captured: Boolean(captured),
+      objects,
+      exists: objects.length > 0,
+      count: objects.length,
+      selectedItem,
+      selectedExists: Boolean(selected),
+      ...sensorFields
     });
   }
 
   function buildSnapshot(captured, records) {
     const objects = Object.freeze(records.map(copyDetectionRecord));
-    const first = objects[0];
-    const sensorFields = first
-      ? {
-          exists: true,
-          count: objects.length,
-          centerX: first.centerX,
-          centerY: first.centerY,
-          width: first.width,
-          height: first.height,
-          id: first.id,
-          confidence: first.confidence
-        }
-      : createEmptySensorFields();
-
-    return Object.freeze({
-      captured: Boolean(captured),
-      objects,
-      ...sensorFields
-    });
+    return buildSnapshotView(captured, objects, 1);
   }
 
   function createEmptySnapshot() {
@@ -123,8 +137,16 @@
   }
 
   function captureSnapshot(projection) {
+    if (projection && Array.isArray(projection.detections)) {
+      return buildSnapshot(true, projection.detections);
+    }
     const detection = projection && projection.detection;
     return buildSnapshot(true, detection ? [detection] : []);
+  }
+
+  function selectSnapshotObject(snapshot, item) {
+    const source = snapshot && Array.isArray(snapshot.objects) ? snapshot : createEmptySnapshot();
+    return buildSnapshotView(source.captured, source.objects, item);
   }
 
   function integrateRobot(world, drivetrain, deltaSeconds) {
@@ -288,6 +310,7 @@
     projectTarget,
     createEmptySnapshot,
     captureSnapshot,
+    selectSnapshotObject,
     setTargetFromCamera,
     layoutWorldView,
     normalizeAngle,
@@ -311,6 +334,11 @@
   "use strict";
 
   if (typeof window === "undefined") return;
+
+  // The full two-scene browser controller is loaded separately when the
+  // Dining Room model is present. This fallback preserves the original
+  // browser API for isolated model tests and legacy embedding.
+  if (window.CVSDiningRoomModel) return;
 
   const model = window.VisionWorld;
   if (!model) {

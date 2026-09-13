@@ -149,11 +149,51 @@
     },
     {
       type: "vision_take_snapshot",
-      message0: "Take Snapshot",
+      message0: "Take Snapshot of %1",
+      args0: [
+        {
+          type: "field_dropdown",
+          name: "SIGNATURE",
+          options: [
+            ["Target", "TARGET"],
+            ["Fiducial IDs", "FIDUCIAL_IDS"]
+          ]
+        }
+      ],
       previousStatement: null,
       nextStatement: null,
       colour: COLORS.vision,
-      tooltip: "Capture the currently eligible target detection. Vision reporters keep these Last Snapshot readings until Take Snapshot runs again.",
+      tooltip: "Capture the selected kind of visible object. Vision reporters keep these Last Snapshot readings until Take Snapshot runs again.",
+      helpUrl: ""
+    },
+    {
+      type: "vision_set_object_item",
+      message0: "Set Object Item to %1",
+      args0: [
+        { type: "input_value", name: "ITEM", check: "Number" }
+      ],
+      previousStatement: null,
+      nextStatement: null,
+      colour: COLORS.vision,
+      tooltip: "Select a Last Snapshot object by its VEX-style item number. Item 1 is the first object.",
+      helpUrl: ""
+    },
+    {
+      type: "vision_look_forward",
+      message0: "Look Forward",
+      previousStatement: null,
+      nextStatement: null,
+      colour: COLORS.vision,
+      tooltip: "Point the camera head outward from its selected mounting side without changing the chassis or drive command.",
+      helpUrl: ""
+    },
+    {
+      type: "vision_look_down",
+      message0: "Look Down",
+      previousStatement: null,
+      nextStatement: null,
+      colour: COLORS.vision,
+      tooltip: "Tilt the camera head downward and outward without changing the chassis or drive command.",
       helpUrl: ""
     },
     {
@@ -161,7 +201,27 @@
       message0: "object exists",
       output: "Boolean",
       colour: COLORS.vision,
-      tooltip: "True when the Last Snapshot contains the target.",
+      tooltip: "True when the Last Snapshot contains at least one object.",
+      helpUrl: ""
+    },
+    {
+      type: "vision_object_count",
+      message0: "object count",
+      output: "Number",
+      colour: COLORS.vision,
+      tooltip: "The number of objects in the Last Snapshot.",
+      helpUrl: ""
+    },
+    {
+      type: "vision_is_fiducial_id",
+      message0: "object is Fiducial ID %1",
+      args0: [
+        { type: "input_value", name: "ID", check: "Number" }
+      ],
+      inputsInline: true,
+      output: "Boolean",
+      colour: COLORS.vision,
+      tooltip: "True when the selected Last Snapshot object is the specified Fiducial ID.",
       helpUrl: ""
     },
     {
@@ -169,7 +229,7 @@
       message0: "object center X",
       output: "Number",
       colour: COLORS.vision,
-      tooltip: "The target's horizontal center from 0 to 320 in the Last Snapshot; 0 when no target was detected.",
+      tooltip: "The selected object's horizontal center from 0 to 320 in the Last Snapshot; 0 when unavailable.",
       helpUrl: ""
     },
     {
@@ -177,7 +237,7 @@
       message0: "object center Y",
       output: "Number",
       colour: COLORS.vision,
-      tooltip: "The target's vertical center from 0 to 240 in the Last Snapshot; 0 when no target was detected.",
+      tooltip: "The selected object's vertical center from 0 to 240 in the Last Snapshot; 0 when unavailable.",
       helpUrl: ""
     },
     {
@@ -185,7 +245,7 @@
       message0: "object width",
       output: "Number",
       colour: COLORS.vision,
-      tooltip: "The target width recorded by the Last Snapshot; 0 when no target was detected.",
+      tooltip: "The selected object's width in the Last Snapshot; 0 when unavailable.",
       helpUrl: ""
     },
     {
@@ -193,7 +253,7 @@
       message0: "object height",
       output: "Number",
       colour: COLORS.vision,
-      tooltip: "The target height recorded by the Last Snapshot; 0 when no target was detected.",
+      tooltip: "The selected object's height in the Last Snapshot; 0 when unavailable.",
       helpUrl: ""
     },
     {
@@ -201,7 +261,7 @@
       message0: "object ID",
       output: "Number",
       colour: COLORS.vision,
-      tooltip: "The target ID recorded by the Last Snapshot. This simulator returns -1 when no target was detected.",
+      tooltip: "The selected object's ID in the Last Snapshot. Fiducials report their tag ID; unavailable objects report -1.",
       helpUrl: ""
     },
     {
@@ -209,7 +269,7 @@
       message0: "object confidence",
       output: "Number",
       colour: COLORS.vision,
-      tooltip: "Detection confidence recorded by the Last Snapshot; 0 when no target was detected.",
+      tooltip: "Target confidence from the Last Snapshot. Fiducials do not expose confidence and report 0.",
       helpUrl: ""
     },
     {
@@ -368,7 +428,7 @@
     {
       id: "vision-sensors",
       label: "AI Vision Sensors",
-      description: "Take a snapshot, then read its object visibility, center, size, ID, and confidence.",
+      description: "Take an explicit snapshot, select an object, and read its captured visibility, count, identity, and image-space measurements.",
       defaultEnabled: true,
       category: {
         kind: "category",
@@ -376,7 +436,34 @@
         colour: COLORS.vision,
         contents: [
           { kind: "block", type: "vision_take_snapshot" },
+          {
+            kind: "block",
+            type: "vision_set_object_item",
+            inputs: {
+              ITEM: {
+                shadow: {
+                  type: "math_number",
+                  fields: { NUM: 1 }
+                }
+              }
+            }
+          },
+          { kind: "block", type: "vision_look_forward" },
+          { kind: "block", type: "vision_look_down" },
           { kind: "block", type: "vision_exists" },
+          { kind: "block", type: "vision_object_count" },
+          {
+            kind: "block",
+            type: "vision_is_fiducial_id",
+            inputs: {
+              ID: {
+                shadow: {
+                  type: "math_number",
+                  fields: { NUM: 0 }
+                }
+              }
+            }
+          },
           { kind: "block", type: "vision_center_x" },
           { kind: "block", type: "vision_center_y" },
           { kind: "block", type: "vision_width" },
