@@ -16,20 +16,20 @@
     purpose: "Use Blockly to control a simulated robot using information from an AI Vision camera.",
     instructions: Object.freeze([
       Object.freeze({
-        heading: "Move the target",
-        body: "Drag the target object to place it in a different position in the simulated world.",
+        heading: "Live Camera and Last Snapshot",
+        body: "The camera preview updates live. Program readings come only from the most recent Take Snapshot block.",
       }),
       Object.freeze({
-        heading: "Camera View",
-        body: "See what the robot currently sees. The target shifts as the robot turns and changes size as distance changes.",
+        heading: "Refresh while tracking",
+        body: "Repeat Take Snapshot inside the sensing loop whenever the program needs refreshed camera readings.",
       }),
       Object.freeze({
-        heading: "World View",
-        body: "Use the map to check the robot location, direction, camera field of view, and target position.",
+        heading: "Check Object Exists",
+        body: "Check Object Exists before using object position, size, ID, or confidence properties.",
       }),
       Object.freeze({
-        heading: "Program the robot",
-        body: "Build a Blockly program with the available Vision, Drive, Logic, and Control blocks.",
+        heading: "World View is a debug view",
+        body: "World View is a teaching and debugging aid. It is not another sensor available to the robot program.",
       }),
       Object.freeze({ common: "runtime" }),
       Object.freeze({ common: "blockLibrary" }),

@@ -1,8 +1,8 @@
 # CVS AI Vision Simulator
 
-A small, browser-based educational simulator that lets students use Google Blockly to write programs against simulated VEX V5 AI Vision Sensor data and issue basic simulated drivetrain commands. It is designed for learning sensor logic before a VEX V5 Brain or AI Vision Sensor is available.
+A small, browser-based educational simulator that lets students use Google Blockly to write programs against simulated, snapshot-based VEX V5 AI Vision Sensor data and issue basic simulated drivetrain commands. It is designed for learning sensor logic before a VEX V5 Brain or AI Vision Sensor is available.
 
-The simulator uses a lightweight 2D world model to keep robot motion, the draggable target, camera projection, and a compact World View synchronized. It does not perform computer vision or connect to VEX hardware.
+The simulator uses a lightweight 2D world model to keep robot motion, the draggable target, the live camera projection, and a compact World View synchronized. It does not perform computer vision or connect to VEX hardware.
 
 ## Run Locally
 
@@ -34,12 +34,26 @@ No build command or configuration file is required.
 - **Save / Load** stores the Blockly program in this browser and device.
 - **Export / Import** downloads or opens a portable `CVS-AI-Vision-Program.json` file.
 
+Existing saved and portable projects continue to load without being rewritten. If a project reads an AI Vision reporter before taking a snapshot, it receives a compatibility message so the student can add snapshot capture inside the appropriate sensing loop.
+
+## Snapshot sensing model
+
+The **Live Camera** preview updates continuously from the simulated world. Blockly does not read that live projection. A **Take Snapshot** command copies the currently eligible target detection into a separate **Last Snapshot** dataset, and every AI Vision reporter reads only that captured dataset.
+
+- A new Run or Reset begins with no captured detection.
+- Take Snapshot replaces the previous dataset; moving the robot or target does not change an existing snapshot.
+- Tracking programs should repeat Take Snapshot and check Object Exists before reading object properties.
+- An empty snapshot returns `false` for Object Exists. Program-visible numeric position, size, and confidence fallbacks are `0`, and the internal unavailable ID is `-1`. The Last Snapshot panel displays unavailable properties as a dash rather than as meaningful measurements.
+- The simulator accepts a partially visible target when its projected bounds overlap the camera image. The target must be in front of the camera and within the configured approximate detection range. Detection range and projected-size limits are teaching approximations, not measured VEX hardware specifications.
+
+The World View can display the true robot pose, target location, distance, and bearing for teaching and debugging. Those world coordinates and debug measurements are not available through Blockly; student programs receive only values copied into the Last Snapshot dataset.
+
 ## Version 1 features
 
 - A touch-friendly Blockly workspace with event, control, logic, AI Vision, Drive, and output blocks
 - One draggable target in a responsive 320 × 240 simulated camera coordinate system
-- A compact top-down World View showing the shared robot position, heading, target, and 60-degree camera field of view
-- Live `exists`, `centerX`, `centerY`, `width`, `height`, `id`, and `confidence` values
+- A compact top-down, debug-only World View showing the shared robot position, heading, target, and 60-degree camera field of view
+- Explicit Take Snapshot sensing with captured `exists`, `centerX`, `centerY`, `width`, `height`, `id`, and `confidence` values
 - Run, stop, and reset controls
 - A live program output console for the Print blocks
 - The same seven Drive blocks used by CVS Digital Feedback: forward, reverse, left, right, stop, drive speed, and turn speed
@@ -62,7 +76,7 @@ No build command or configuration file is required.
 - `app.js` — block program interpreter, controls, output, local saving, and portable program files
 - `assets/stormy.png` — transparent Stormy mascot artwork used by the interface
 
-The Blockly program reads from the plain `window.visionSensor` object defined in `simulator.js`. Drivetrain commands update the separate `window.drivetrain` state through the small interface in `drivetrain.js`. These boundaries keep the sensor model, drivetrain state, Blockly definitions, and UI rendering independent.
+The Blockly program reads captured data from the plain `window.visionSensor` object defined in `simulator.js`. Live projection and World View data remain separate inside the simulator. Drivetrain commands update the independent `window.drivetrain` state through the small interface in `drivetrain.js`. These boundaries keep world knowledge, live rendering, captured sensor data, drivetrain state, Blockly definitions, and UI rendering independent.
 
 ## Future ideas — not implemented
 
@@ -76,4 +90,4 @@ The Blockly program reads from the plain `window.visionSensor` object defined in
 - Generated VEXcode Python or C++
 - Offline/PWA support
 
-These are intentionally outside Version 1. The current version is limited to proving that a Blockly program can respond live to simulated VEX AI Vision sensor data.
+These are intentionally outside Version 1. The current version is limited to proving that a Blockly program can respond to explicitly captured simulated VEX AI Vision sensor data.

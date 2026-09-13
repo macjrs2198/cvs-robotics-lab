@@ -9,7 +9,7 @@ const helpUi = require(path.join(repositoryRoot, "shared", "help", "help-ui.js")
 const apps = [
   {
     directory: "ai-vision",
-    requiredText: ["Move the target", "Camera View", "World View"],
+    requiredText: ["Live Camera", "Take Snapshot", "Object Exists", "World View"],
   },
   {
     directory: "digital-feedback",

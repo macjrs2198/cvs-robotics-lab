@@ -18,11 +18,11 @@ function resetProjection() {
 
 {
   const { projection } = resetProjection();
-  assert.equal(projection.sensor.exists, true);
-  assert.equal(projection.sensor.centerX, 160);
-  assert.equal(projection.sensor.centerY, 120);
-  assert.equal(projection.sensor.width, 40);
-  assert.equal(projection.sensor.height, 40);
+  assert.ok(projection.detection);
+  assert.equal(projection.detection.centerX, 160);
+  assert.equal(projection.detection.centerY, 120);
+  assert.equal(projection.detection.width, 40);
+  assert.equal(projection.detection.height, 40);
   console.log("PASS: reset target is centered and visible");
 }
 
@@ -31,13 +31,13 @@ function resetProjection() {
   model.integrateRobot(world, drive(50, 50), 1);
   const afterForward = model.projectTarget(world);
   assert.ok(afterForward.distance < before.distance);
-  assert.ok(afterForward.sensor.width > before.sensor.width);
-  nearlyEqual(afterForward.sensor.centerX, before.sensor.centerX);
+  assert.ok(afterForward.detection.width > before.detection.width);
+  nearlyEqual(afterForward.detection.centerX, before.detection.centerX);
 
   model.integrateRobot(world, drive(-50, -50), 1);
   const afterReverse = model.projectTarget(world);
   nearlyEqual(afterReverse.distance, before.distance);
-  assert.equal(afterReverse.sensor.width, before.sensor.width);
+  assert.equal(afterReverse.detection.width, before.detection.width);
   console.log("PASS: forward grows target and reverse shrinks it");
 }
 
@@ -45,12 +45,12 @@ function resetProjection() {
   const leftWorld = model.createWorldState();
   model.integrateRobot(leftWorld, drive(10.5, 30), 1);
   const afterLeft = model.projectTarget(leftWorld);
-  assert.ok(afterLeft.sensor.centerX > 160);
+  assert.ok(afterLeft.detection.centerX > 160);
 
   const rightWorld = model.createWorldState();
   model.integrateRobot(rightWorld, drive(30, 10.5), 1);
   const afterRight = model.projectTarget(rightWorld);
-  assert.ok(afterRight.sensor.centerX < 160);
+  assert.ok(afterRight.detection.centerX < 160);
   console.log("PASS: left turn moves target right and right turn moves target left");
 }
 
@@ -59,7 +59,7 @@ function resetProjection() {
   const centerXs = [];
   for (let index = 0; index < 12; index += 1) {
     model.integrateRobot(world, drive(10.5, 30), 0.1);
-    centerXs.push(model.projectTarget(world).sensor.centerX);
+    centerXs.push(model.projectTarget(world).detection.centerX);
   }
   assert.ok(centerXs.every((value, index) => index === 0 || value >= centerXs[index - 1]));
   assert.ok(new Set(centerXs).size > 6);
@@ -67,12 +67,12 @@ function resetProjection() {
   for (let index = 0; index < 24; index += 1) {
     model.integrateRobot(world, drive(10.5, 30), 0.1);
   }
-  assert.equal(model.projectTarget(world).sensor.exists, false);
+  assert.equal(model.projectTarget(world).detection, null);
 
   for (let index = 0; index < 36; index += 1) {
     model.integrateRobot(world, drive(30, 10.5), 0.1);
   }
-  assert.equal(model.projectTarget(world).sensor.exists, true);
+  assert.ok(model.projectTarget(world).detection);
   console.log("PASS: turning changes center continuously and target exits/re-enters view");
 }
 
@@ -80,18 +80,18 @@ function resetProjection() {
   const world = model.createWorldState();
   model.setTargetFromCamera(world, 80, 120);
   const leftTarget = model.projectTarget(world);
-  assert.ok(Math.abs(leftTarget.sensor.centerX - 80) <= 1);
+  assert.ok(Math.abs(leftTarget.detection.centerX - 80) <= 1);
   assert.ok(world.target.y > 0);
 
   model.setTargetFromCamera(world, 240, 0);
   const farRightTarget = model.projectTarget(world);
-  assert.ok(Math.abs(farRightTarget.sensor.centerX - 240) <= 1);
+  assert.ok(Math.abs(farRightTarget.detection.centerX - 240) <= 1);
   assert.ok(farRightTarget.distance > leftTarget.distance);
 
   model.resetWorld(world);
   const reset = model.projectTarget(world);
-  assert.equal(reset.sensor.centerX, 160);
-  assert.equal(reset.sensor.width, 40);
+  assert.equal(reset.detection.centerX, 160);
+  assert.equal(reset.detection.width, 40);
   console.log("PASS: dragging maps camera input into world target position and reset restores defaults");
 }
 
@@ -118,7 +118,8 @@ function resetProjection() {
   nearlyEqual(after.target.x, fixedTargetX);
   nearlyEqual(after.target.y, fixedTargetY);
   assert.ok(after.distance < before.distance);
-  assert.equal(after.targetInFov, model.projectTarget(world).sensor.exists);
+  assert.equal(after.targetInFov, Boolean(model.projectTarget(world).detection));
+  assert.equal(after.targetDetected, Boolean(model.projectTarget(world).detection));
   console.log("PASS: World View reads the shared world state while a fixed target stays fixed");
 }
 
@@ -128,14 +129,16 @@ function resetProjection() {
   const leftMap = model.layoutWorldView(leftWorld);
   assert.ok(leftMap.robot.rotationDegrees < 0);
   assert.ok(leftMap.fov.direction.y < leftMap.robot.y);
-  assert.equal(leftMap.targetInFov, model.projectTarget(leftWorld).sensor.exists);
+  assert.equal(leftMap.targetInFov, Boolean(model.projectTarget(leftWorld).detection));
+  assert.equal(leftMap.targetDetected, Boolean(model.projectTarget(leftWorld).detection));
 
   const rightWorld = model.createWorldState();
   model.integrateRobot(rightWorld, drive(30, 10.5), 1);
   const rightMap = model.layoutWorldView(rightWorld);
   assert.ok(rightMap.robot.rotationDegrees > 0);
   assert.ok(rightMap.fov.direction.y > rightMap.robot.y);
-  assert.equal(rightMap.targetInFov, model.projectTarget(rightWorld).sensor.exists);
+  assert.equal(rightMap.targetInFov, Boolean(model.projectTarget(rightWorld).detection));
+  assert.equal(rightMap.targetDetected, Boolean(model.projectTarget(rightWorld).detection));
   console.log("PASS: World View robot and exact 60-degree FOV rotate with shared heading");
 }
 
@@ -146,7 +149,8 @@ function resetProjection() {
   const dragged = model.layoutWorldView(world);
   assert.notEqual(dragged.target.x, before.target.x);
   assert.notEqual(dragged.target.y, before.target.y);
-  assert.equal(dragged.targetInFov, model.projectTarget(world).sensor.exists);
+  assert.equal(dragged.targetInFov, Boolean(model.projectTarget(world).detection));
+  assert.equal(dragged.targetDetected, Boolean(model.projectTarget(world).detection));
 
   model.resetWorld(world);
   const reset = model.layoutWorldView(world);

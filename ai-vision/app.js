@@ -5,7 +5,7 @@
   const PROGRAM_FORMAT = "cvs-robotics-program";
   const PROGRAM_FORMAT_VERSION = 1;
   const APP_ID = "cvs-ai-vision";
-  const APP_VERSION = "2.0";
+  const APP_VERSION = "2.1";
   const APP_DISPLAY_NAME = "CVS AI Vision";
   const APP_DISPLAY_NAMES = Object.freeze({
     "cvs-ai-vision": APP_DISPLAY_NAME,
@@ -14,12 +14,14 @@
   });
   const FOREVER_DELAY_MS = 140;
   const MAX_CONSOLE_LINES = 80;
+  const SNAPSHOT_GUIDANCE = "This program needs Take Snapshot inside its sensing loop to refresh camera readings.";
 
   let workspace = null;
   let running = false;
   let programControl = null;
   let blockLibrary = null;
   let saveStatusTimer = null;
+  let snapshotGuidanceShown = false;
   const variables = new Map();
 
   const elements = {};
@@ -80,12 +82,12 @@
   function renderSensorData(sensor) {
     elements.dataExists.textContent = sensor.exists ? "TRUE" : "FALSE";
     elements.dataExists.classList.toggle("is-false", !sensor.exists);
-    elements.dataCenterX.textContent = sensor.centerX;
-    elements.dataCenterY.textContent = sensor.centerY;
-    elements.dataWidth.textContent = sensor.width;
-    elements.dataHeight.textContent = sensor.height;
-    elements.dataId.textContent = sensor.id;
-    elements.dataConfidence.textContent = sensor.confidence;
+    elements.dataCenterX.textContent = sensor.exists ? sensor.centerX : "\u2014";
+    elements.dataCenterY.textContent = sensor.exists ? sensor.centerY : "\u2014";
+    elements.dataWidth.textContent = sensor.exists ? sensor.width : "\u2014";
+    elements.dataHeight.textContent = sensor.exists ? sensor.height : "\u2014";
+    elements.dataId.textContent = sensor.exists ? sensor.id : "\u2014";
+    elements.dataConfidence.textContent = sensor.exists ? sensor.confidence : "\u2014";
   }
 
   function renderDrivetrain(state) {
@@ -155,6 +157,15 @@
     return block.getFieldValue("VAR") || "value";
   }
 
+  function readVisionSensor(property) {
+    if (!window.visionSensor.captured && !snapshotGuidanceShown) {
+      snapshotGuidanceShown = true;
+      printToConsole(SNAPSHOT_GUIDANCE, true);
+    }
+
+    return window.visionSensor[property];
+  }
+
   function evaluateValue(block) {
     if (!block || block.isEnabled() === false) {
       return false;
@@ -162,19 +173,19 @@
 
     switch (block.type) {
       case "vision_exists":
-        return window.visionSensor.exists;
+        return readVisionSensor("exists");
       case "vision_center_x":
-        return window.visionSensor.centerX;
+        return readVisionSensor("centerX");
       case "vision_center_y":
-        return window.visionSensor.centerY;
+        return readVisionSensor("centerY");
       case "vision_width":
-        return window.visionSensor.width;
+        return readVisionSensor("width");
       case "vision_height":
-        return window.visionSensor.height;
+        return readVisionSensor("height");
       case "vision_id":
-        return window.visionSensor.id;
+        return readVisionSensor("id");
       case "vision_confidence":
-        return window.visionSensor.confidence;
+        return readVisionSensor("confidence");
       case "math_number":
         return Number(block.getFieldValue("NUM")) || 0;
       case "variables_get":
@@ -298,6 +309,9 @@
         case "output_print_value":
           printToConsole(evaluateValue(inputBlock(block, "VALUE")));
           break;
+        case "vision_take_snapshot":
+          window.VisionSimulator.takeSnapshot();
+          break;
         case "drive_forward":
           window.Drivetrain.forward();
           break;
@@ -346,6 +360,8 @@
     stopProgram("ready");
     clearOutput();
     variables.clear();
+    snapshotGuidanceShown = false;
+    window.VisionSimulator.clearSnapshot();
 
     const startBlocks = workspace
       .getTopBlocks(true)

@@ -23,6 +23,8 @@
   const MIN_RENDERED_SIZE = 8;
   const MAX_RENDERED_SIZE = 120;
   const MIN_PROJECTION_DISTANCE = 8;
+  // Simulator approximation, not a measured VEX AI Vision specification.
+  const MAX_DETECTION_DISTANCE = 520;
   const MAX_LINEAR_SPEED = 100;
   const DRIVE_TRACK_WIDTH = 70;
   const DRAG_MARGIN = 50;
@@ -69,6 +71,62 @@
     return clamp(numeric, -100, 100) / 100;
   }
 
+  function createEmptySensorFields() {
+    return {
+      exists: false,
+      count: 0,
+      centerX: 0,
+      centerY: 0,
+      width: 0,
+      height: 0,
+      id: -1,
+      confidence: 0
+    };
+  }
+
+  function copyDetectionRecord(record) {
+    return Object.freeze({
+      centerX: Math.round(Number(record.centerX) || 0),
+      centerY: Math.round(Number(record.centerY) || 0),
+      width: Math.max(0, Math.round(Number(record.width) || 0)),
+      height: Math.max(0, Math.round(Number(record.height) || 0)),
+      id: Number.isFinite(Number(record.id)) ? Math.round(Number(record.id)) : -1,
+      confidence: clamp(Math.round(Number(record.confidence) || 0), 0, 100)
+    });
+  }
+
+  function buildSnapshot(captured, records) {
+    const objects = Object.freeze(records.map(copyDetectionRecord));
+    const first = objects[0];
+    const sensorFields = first
+      ? {
+          exists: true,
+          count: objects.length,
+          centerX: first.centerX,
+          centerY: first.centerY,
+          width: first.width,
+          height: first.height,
+          id: first.id,
+          confidence: first.confidence
+        }
+      : createEmptySensorFields();
+
+    return Object.freeze({
+      captured: Boolean(captured),
+      objects,
+      ...sensorFields
+    });
+  }
+
+  function createEmptySnapshot() {
+    return buildSnapshot(false, []);
+  }
+
+  function captureSnapshot(projection) {
+    const detection = projection && projection.detection;
+    return buildSnapshot(true, detection ? [detection] : []);
+  }
+
   function integrateRobot(world, drivetrain, deltaSeconds) {
     const dt = clamp(Number(deltaSeconds) || 0, 0, 0.1);
     if (dt === 0 || !drivetrain) return world.robot;
@@ -105,13 +163,29 @@
     const targetRight = rawCenterX + apparentSize / 2;
     const targetTop = rawCenterY - apparentSize / 2;
     const targetBottom = rawCenterY + apparentSize / 2;
-    const exists =
+    const visibleInFrame =
       forwardDistance > 0 &&
       targetRight > 0 &&
       targetLeft < SENSOR_WIDTH &&
       targetBottom > 0 &&
       targetTop < SENSOR_HEIGHT;
-
+    const withinDetectionRange = distance <= MAX_DETECTION_DISTANCE + 0.000001;
+    const eligibleForDetection = visibleInFrame && withinDetectionRange;
+    const clippedLeft = clamp(targetLeft, 0, SENSOR_WIDTH);
+    const clippedRight = clamp(targetRight, 0, SENSOR_WIDTH);
+    const clippedTop = clamp(targetTop, 0, SENSOR_HEIGHT);
+    const clippedBottom = clamp(targetBottom, 0, SENSOR_HEIGHT);
+    // Partially visible targets are reported using their clipped image bounds.
+    const detection = eligibleForDetection
+      ? Object.freeze({
+          centerX: Math.round((clippedLeft + clippedRight) / 2),
+          centerY: Math.round((clippedTop + clippedBottom) / 2),
+          width: Math.max(1, Math.round(clippedRight - clippedLeft)),
+          height: Math.max(1, Math.round(clippedBottom - clippedTop)),
+          id: 1,
+          confidence: 100
+        })
+      : null;
     return {
       rawCenterX,
       rawCenterY,
@@ -119,15 +193,9 @@
       distance,
       bearing,
       forwardDistance,
-      sensor: {
-        exists,
-        centerX: Math.round(clamp(rawCenterX, 0, SENSOR_WIDTH)),
-        centerY: Math.round(rawCenterY),
-        width: exists ? Math.round(apparentSize) : 0,
-        height: exists ? Math.round(apparentSize) : 0,
-        id: 1,
-        confidence: exists ? 100 : 0
-      }
+      visibleInFrame,
+      withinDetectionRange,
+      detection
     };
   }
 
@@ -205,7 +273,8 @@
       },
       distance: projection.distance,
       bearingDegrees: projection.bearing * 180 / Math.PI,
-      targetInFov: projection.sensor.exists
+      targetInFov: projection.visibleInFrame,
+      targetDetected: Boolean(projection.detection)
     };
   }
 
@@ -217,6 +286,8 @@
     resetWorld,
     integrateRobot,
     projectTarget,
+    createEmptySnapshot,
+    captureSnapshot,
     setTargetFromCamera,
     layoutWorldView,
     normalizeAngle,
@@ -225,6 +296,8 @@
       defaultTargetSize: DEFAULT_TARGET_SIZE,
       minRenderedSize: MIN_RENDERED_SIZE,
       maxRenderedSize: MAX_RENDERED_SIZE,
+      maxDetectionDistance: MAX_DETECTION_DISTANCE,
+      detectionRangeIsSimulatorApproximation: true,
       maxLinearSpeed: MAX_LINEAR_SPEED,
       driveTrackWidth: DRIVE_TRACK_WIDTH,
       worldViewWidth: WORLD_VIEW_WIDTH,
@@ -244,18 +317,9 @@
     throw new Error("The AI Vision world model is unavailable.");
   }
 
-  const visionSensor = {
-    exists: true,
-    centerX: model.SENSOR_WIDTH / 2,
-    centerY: model.SENSOR_HEIGHT / 2,
-    width: model.config.defaultTargetSize,
-    height: model.config.defaultTargetSize,
-    id: 1,
-    confidence: 100
-  };
-
   const world = model.createWorldState();
   let projection = model.projectTarget(world);
+  let currentSnapshot = model.createEmptySnapshot();
   let cameraElement = null;
   let targetElement = null;
   let worldMapElement = null;
@@ -274,34 +338,28 @@
   let animationFrameId = null;
   let previousFrameTime = null;
 
-  function sensorDataChanged(nextSensor) {
-    return Object.keys(visionSensor).some((key) => visionSensor[key] !== nextSensor[key]);
-  }
-
-  function publishSensorData(nextSensor) {
-    const changed = sensorDataChanged(nextSensor);
-    Object.assign(visionSensor, nextSensor);
-
-    if (changed) {
-      window.dispatchEvent(
-        new CustomEvent("visiondatachange", {
-          detail: { ...visionSensor }
-        })
-      );
-    }
+  function replaceSnapshot(nextSnapshot) {
+    currentSnapshot = nextSnapshot;
+    window.visionSensor = currentSnapshot;
+    window.dispatchEvent(
+      new CustomEvent("visiondatachange", {
+        detail: currentSnapshot
+      })
+    );
+    return currentSnapshot;
   }
 
   function renderTarget() {
     if (!targetElement) return;
 
-    targetElement.hidden = !projection.sensor.exists;
+    targetElement.hidden = !projection.visibleInFrame;
     targetElement.style.left = `${(projection.rawCenterX / model.SENSOR_WIDTH) * 100}%`;
     targetElement.style.top = `${(projection.rawCenterY / model.SENSOR_HEIGHT) * 100}%`;
     targetElement.style.width = `${(projection.apparentSize / model.SENSOR_WIDTH) * 100}%`;
     targetElement.style.height = `${(projection.apparentSize / model.SENSOR_HEIGHT) * 100}%`;
     targetElement.setAttribute(
       "aria-label",
-      `Draggable target, object ID 1, center X ${visionSensor.centerX}, center Y ${visionSensor.centerY}, distance ${Math.round(projection.distance)}`
+      `Draggable target, object ID 1, center X ${Math.round(projection.rawCenterX)}, center Y ${Math.round(projection.rawCenterY)}, distance ${Math.round(projection.distance)}`
     );
   }
 
@@ -334,7 +392,7 @@
       `translate(${robot.x} ${robot.y}) rotate(${robot.rotationDegrees})`
     );
     worldMapTargetElement.setAttribute("transform", `translate(${target.x} ${target.y})`);
-    worldMapTargetElement.classList.toggle("is-detected", layout.targetInFov);
+    worldMapTargetElement.classList.toggle("is-detected", layout.targetDetected);
 
     worldMapRobotLabelElement.setAttribute("x", robot.x + (robotLabelOnRight ? 13 : -13));
     worldMapRobotLabelElement.setAttribute("y", Math.min(Math.max(robot.y + 18, 14), layout.height - 7));
@@ -348,16 +406,32 @@
     worldMapHeadingElement.textContent = `${Math.round(layout.robot.headingDegrees)}\u00b0`;
     worldMapElement.setAttribute(
       "aria-label",
-      `World view. Robot heading ${Math.round(layout.robot.headingDegrees)} degrees. Target distance ${Math.round(layout.distance)}, bearing ${formatSignedDegrees(layout.bearingDegrees)}. Target ${layout.targetInFov ? "inside" : "outside"} camera field of view.`
+      `Debug World View, teaching only. Robot heading ${Math.round(layout.robot.headingDegrees)} degrees. Target distance ${Math.round(layout.distance)}, bearing ${formatSignedDegrees(layout.bearingDegrees)}. Target ${layout.targetInFov ? "inside" : "outside"} camera field of view.`
     );
   }
 
   function updateCameraView() {
     projection = model.projectTarget(world);
-    publishSensorData(projection.sensor);
     renderTarget();
     renderWorldView();
     return projection;
+  }
+
+  function takeSnapshot() {
+    const liveProjection = updateCameraView();
+    return replaceSnapshot(model.captureSnapshot(liveProjection));
+  }
+
+  function clearSnapshot() {
+    return replaceSnapshot(model.createEmptySnapshot());
+  }
+
+  function getSnapshot() {
+    return currentSnapshot;
+  }
+
+  function hasCapturedSnapshot() {
+    return currentSnapshot.captured;
   }
 
   function step(deltaSeconds) {
@@ -419,7 +493,9 @@
   function resetWorld() {
     model.resetWorld(world);
     previousFrameTime = null;
-    return updateCameraView();
+    const nextProjection = updateCameraView();
+    clearSnapshot();
+    return nextProjection;
   }
 
   function resetTarget() {
@@ -468,7 +544,7 @@
     }
   }
 
-  window.visionSensor = visionSensor;
+  window.visionSensor = currentSnapshot;
   window.VisionSimulator = {
     init,
     resetWorld,
@@ -476,6 +552,10 @@
     setTargetPosition,
     step,
     getWorldState,
+    takeSnapshot,
+    clearSnapshot,
+    getSnapshot,
+    hasCapturedSnapshot,
     dimensions: {
       width: model.SENSOR_WIDTH,
       height: model.SENSOR_HEIGHT

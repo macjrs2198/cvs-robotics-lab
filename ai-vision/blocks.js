@@ -148,11 +148,20 @@
       helpUrl: ""
     },
     {
+      type: "vision_take_snapshot",
+      message0: "Take Snapshot",
+      previousStatement: null,
+      nextStatement: null,
+      colour: COLORS.vision,
+      tooltip: "Capture the currently eligible target detection. Vision reporters keep these Last Snapshot readings until Take Snapshot runs again.",
+      helpUrl: ""
+    },
+    {
       type: "vision_exists",
       message0: "object exists",
       output: "Boolean",
       colour: COLORS.vision,
-      tooltip: "True when the target is visible in the camera view.",
+      tooltip: "True when the Last Snapshot contains the target.",
       helpUrl: ""
     },
     {
@@ -160,7 +169,7 @@
       message0: "object center X",
       output: "Number",
       colour: COLORS.vision,
-      tooltip: "The horizontal center of the target from 0 to 320.",
+      tooltip: "The target's horizontal center from 0 to 320 in the Last Snapshot; 0 when no target was detected.",
       helpUrl: ""
     },
     {
@@ -168,7 +177,7 @@
       message0: "object center Y",
       output: "Number",
       colour: COLORS.vision,
-      tooltip: "The vertical center of the target from 0 to 240.",
+      tooltip: "The target's vertical center from 0 to 240 in the Last Snapshot; 0 when no target was detected.",
       helpUrl: ""
     },
     {
@@ -176,7 +185,7 @@
       message0: "object width",
       output: "Number",
       colour: COLORS.vision,
-      tooltip: "The target width in camera units.",
+      tooltip: "The target width recorded by the Last Snapshot; 0 when no target was detected.",
       helpUrl: ""
     },
     {
@@ -184,7 +193,7 @@
       message0: "object height",
       output: "Number",
       colour: COLORS.vision,
-      tooltip: "The target height in camera units.",
+      tooltip: "The target height recorded by the Last Snapshot; 0 when no target was detected.",
       helpUrl: ""
     },
     {
@@ -192,7 +201,7 @@
       message0: "object ID",
       output: "Number",
       colour: COLORS.vision,
-      tooltip: "The ID of the detected target. Version 1 always returns 1.",
+      tooltip: "The target ID recorded by the Last Snapshot. This simulator returns -1 when no target was detected.",
       helpUrl: ""
     },
     {
@@ -200,7 +209,7 @@
       message0: "object confidence",
       output: "Number",
       colour: COLORS.vision,
-      tooltip: "Detection confidence is 100 while the target is visible and 0 when it is not detected.",
+      tooltip: "Detection confidence recorded by the Last Snapshot; 0 when no target was detected.",
       helpUrl: ""
     },
     {
@@ -359,13 +368,14 @@
     {
       id: "vision-sensors",
       label: "AI Vision Sensors",
-      description: "Object visibility, center, size, ID, and confidence reporters.",
+      description: "Take a snapshot, then read its object visibility, center, size, ID, and confidence.",
       defaultEnabled: true,
       category: {
         kind: "category",
         name: "AI Vision",
         colour: COLORS.vision,
         contents: [
+          { kind: "block", type: "vision_take_snapshot" },
           { kind: "block", type: "vision_exists" },
           { kind: "block", type: "vision_center_x" },
           { kind: "block", type: "vision_center_y" },
