@@ -16,7 +16,7 @@
       href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap"
       rel="stylesheet"
     >
-    <link rel="stylesheet" href="./styles.css?v=3.0">
+    <link rel="stylesheet" href="./styles.css?v=4.0">
     <link rel="stylesheet" href="../shared/controls.css?v=1.0">
     <link rel="stylesheet" href="../shared/help/help-ui.css?v=1.0">
   </head>
@@ -36,8 +36,8 @@
       </div>
     </header>
 
-    <main class="workbench">
-      <section class="workspace-panel" aria-labelledby="program-heading">
+    <main id="vision-workbench" class="workbench">
+      <section id="workspace-panel" class="workspace-panel" aria-labelledby="program-heading">
         <div class="panel-heading">
           <div>
             <p class="section-label">BLOCK PROGRAM</p>
@@ -74,54 +74,70 @@
         </div>
       </section>
 
-      <aside class="sensor-panel" aria-labelledby="camera-heading">
-        <section class="setup-section" aria-labelledby="setup-heading">
-          <div class="setup-heading-row">
-            <div>
-              <p class="section-label">SIMULATION SETUP</p>
-              <h2 id="setup-heading">Scene and camera</h2>
+      <div
+        id="layout-divider"
+        class="layout-divider"
+        role="separator"
+        tabindex="0"
+        aria-label="Resize programming and simulation panels"
+        aria-orientation="vertical"
+        aria-controls="workspace-panel simulation-panel"
+        aria-valuemin="34"
+        aria-valuemax="47"
+        aria-valuenow="40"
+        aria-valuetext="40% programming, 60% simulation"
+      >
+        <span class="layout-divider-handle" aria-hidden="true"></span>
+      </div>
+
+      <aside id="simulation-panel" class="sensor-panel" aria-label="Simulation and sensor data">
+        <div class="simulation-sidebar">
+          <section class="setup-section" aria-labelledby="setup-heading">
+            <div class="setup-heading-row">
+              <div>
+                <p class="section-label">SIMULATION SETUP</p>
+                <h2 id="setup-heading">Scene and camera</h2>
+              </div>
+              <p id="setup-status" class="setup-status" role="status" aria-live="polite">Ball sandbox ready</p>
             </div>
-            <p id="setup-status" class="setup-status" role="status" aria-live="polite">Ball sandbox ready</p>
-          </div>
-          <div class="setup-controls">
-            <label class="setup-control setup-control--scene">
-              <span>Scene</span>
-              <select id="scene-select">
-                <option value="ball">Ball sandbox</option>
-                <option value="byte-to-bite-dining-room">Byte to Bite &mdash; Dining Room</option>
-              </select>
-            </label>
-            <label class="setup-control setup-control--start">
-              <span>Start pose</span>
-              <select id="start-pose-select" disabled>
-                <option value="ball-default">Center, facing target</option>
-              </select>
-            </label>
-            <label class="setup-control setup-control--mount">
-              <span>Mount</span>
-              <select id="camera-mount-select">
-                <option value="front">Front</option>
-                <option value="rear">Rear</option>
-                <option value="left">Left</option>
-                <option value="right">Right</option>
-              </select>
-            </label>
-            <label class="setup-control setup-control--height">
-              <span>Lens height</span>
-              <span class="number-unit"><input id="camera-height-input" type="number" min="5.5" max="24" step="0.5" value="12" inputmode="decimal"><span>in</span></span>
-            </label>
-            <div class="setup-control setup-control--head">
-              <span>Head</span>
-              <div class="head-buttons" role="group" aria-label="Camera head position">
-                <button id="look-forward-button" class="head-button is-active" type="button" aria-pressed="true">Forward</button>
-                <button id="look-down-button" class="head-button" type="button" aria-pressed="false">Down 60&deg;</button>
+            <div class="setup-controls">
+              <label class="setup-control setup-control--scene">
+                <span>Scene</span>
+                <select id="scene-select">
+                  <option value="ball">Ball sandbox</option>
+                  <option value="byte-to-bite-dining-room">Byte to Bite &mdash; Dining Room</option>
+                </select>
+              </label>
+              <label class="setup-control setup-control--start">
+                <span>Start pose</span>
+                <select id="start-pose-select" disabled>
+                  <option value="ball-default">Center, facing target</option>
+                </select>
+              </label>
+              <label class="setup-control setup-control--mount">
+                <span>Mount</span>
+                <select id="camera-mount-select">
+                  <option value="front">Front</option>
+                  <option value="rear">Rear</option>
+                  <option value="left">Left</option>
+                  <option value="right">Right</option>
+                </select>
+              </label>
+              <label class="setup-control setup-control--height">
+                <span>Lens height</span>
+                <span class="number-unit"><input id="camera-height-input" type="number" min="5.5" max="24" step="0.5" value="12" inputmode="decimal"><span>in</span></span>
+              </label>
+              <div class="setup-control setup-control--head">
+                <span>Head</span>
+                <div class="head-buttons" role="group" aria-label="Camera head position">
+                  <button id="look-forward-button" class="head-button is-active" type="button" aria-pressed="true">Forward</button>
+                  <button id="look-down-button" class="head-button" type="button" aria-pressed="false">Down 60&deg;</button>
+                </div>
               </div>
             </div>
-          </div>
-        </section>
+          </section>
 
-        <div class="visual-grid">
-          <section class="camera-section">
+          <section class="camera-section" aria-labelledby="camera-heading">
             <div class="section-heading-row">
               <div>
                 <p class="section-label">SIMULATED CAMERA · 320 × 240</p>
@@ -159,19 +175,50 @@
             </div>
           </section>
 
-          <section class="world-section" aria-labelledby="world-heading">
-            <div class="section-heading-row">
-              <div>
-                <p class="section-label">WORLD VIEW · DEBUG ONLY</p>
-                <h2 id="world-heading">Robot / target map</h2>
+          <section class="data-section" aria-labelledby="data-heading">
+            <div class="data-heading-row">
+              <p id="data-heading" class="section-label">LAST SNAPSHOT</p>
+              <div class="drivetrain-status is-stopped" role="status" aria-live="polite">
+                <span>DRIVE</span>
+                <strong id="drivetrain-status-value">STOPPED &mdash; L 0% &middot; R 0%</strong>
               </div>
-              <span class="map-hint">Teaching only</span>
             </div>
+            <dl class="sensor-data" aria-label="Last Snapshot measurements">
+              <div><dt>Exists</dt><dd id="data-exists" class="is-false">FALSE</dd></div>
+              <div><dt>Count</dt><dd id="data-count">0</dd></div>
+              <div><dt>Selected item</dt><dd id="data-selected-item">&mdash;</dd></div>
+              <div><dt>Center X</dt><dd id="data-center-x">&mdash;</dd></div>
+              <div><dt>Center Y</dt><dd id="data-center-y">&mdash;</dd></div>
+              <div><dt>Width</dt><dd id="data-width">&mdash;</dd></div>
+              <div><dt>Height</dt><dd id="data-height">&mdash;</dd></div>
+              <div><dt>ID</dt><dd id="data-id">&mdash;</dd></div>
+              <div><dt>Confidence</dt><dd id="data-confidence">&mdash;</dd></div>
+            </dl>
+          </section>
 
+          <section class="console-section" aria-labelledby="console-heading">
+            <p id="console-heading" class="section-label">PROGRAM OUTPUT</p>
+            <div id="output-console" class="output-console" role="log" aria-live="polite" aria-relevant="additions">
+              <p id="console-placeholder" class="console-placeholder">Printed values will appear here.</p>
+            </div>
+          </section>
+        </div>
+
+        <section class="world-section" aria-labelledby="world-heading">
+          <div class="section-heading-row">
+            <div>
+              <p class="section-label">WORLD VIEW · DEBUG ONLY</p>
+              <h2 id="world-heading">Robot / target map</h2>
+            </div>
+            <span class="map-hint">Teaching only</span>
+          </div>
+
+          <div id="world-stage" class="world-stage">
             <svg
               id="world-map"
               class="world-map"
               viewBox="0 0 320 160"
+              preserveAspectRatio="xMidYMid meet"
               role="img"
               aria-label="Debug World View showing robot, target, heading, and camera field of view"
             >
@@ -207,42 +254,14 @@
               aria-label="Debug World View of the Dining Room, robot, and camera footprint"
               hidden
             ></canvas>
-
-            <dl class="world-readout" aria-label="Debug World View measurements">
-              <div><dt>Distance</dt><dd id="world-map-distance">300</dd></div>
-              <div><dt>Bearing</dt><dd id="world-map-bearing">0°</dd></div>
-              <div><dt>Heading</dt><dd id="world-map-heading">0°</dd></div>
-              <div><dt>Motion</dt><dd id="world-map-motion">Clear</dd></div>
-            </dl>
-          </section>
-        </div>
-
-        <section class="data-section" aria-labelledby="data-heading">
-          <div class="data-heading-row">
-            <p id="data-heading" class="section-label">LAST SNAPSHOT</p>
-            <div class="drivetrain-status is-stopped" role="status" aria-live="polite">
-              <span>DRIVE</span>
-              <strong id="drivetrain-status-value">STOPPED &mdash; L 0% &middot; R 0%</strong>
-            </div>
           </div>
-          <dl class="sensor-data" aria-label="Last Snapshot measurements">
-            <div><dt>Exists</dt><dd id="data-exists" class="is-false">FALSE</dd></div>
-            <div><dt>Count</dt><dd id="data-count">0</dd></div>
-            <div><dt>Selected item</dt><dd id="data-selected-item">&mdash;</dd></div>
-            <div><dt>Center X</dt><dd id="data-center-x">&mdash;</dd></div>
-            <div><dt>Center Y</dt><dd id="data-center-y">&mdash;</dd></div>
-            <div><dt>Width</dt><dd id="data-width">&mdash;</dd></div>
-            <div><dt>Height</dt><dd id="data-height">&mdash;</dd></div>
-            <div><dt>ID</dt><dd id="data-id">&mdash;</dd></div>
-            <div><dt>Confidence</dt><dd id="data-confidence">&mdash;</dd></div>
+
+          <dl class="world-readout" aria-label="Debug World View measurements">
+            <div><dt>Distance</dt><dd id="world-map-distance">300</dd></div>
+            <div><dt>Bearing</dt><dd id="world-map-bearing">0°</dd></div>
+            <div><dt>Heading</dt><dd id="world-map-heading">0°</dd></div>
+            <div><dt>Motion</dt><dd id="world-map-motion">Clear</dd></div>
           </dl>
-        </section>
-
-        <section class="console-section" aria-labelledby="console-heading">
-          <p id="console-heading" class="section-label">PROGRAM OUTPUT</p>
-          <div id="output-console" class="output-console" role="log" aria-live="polite" aria-relevant="additions">
-            <p id="console-placeholder" class="console-placeholder">Printed values will appear here.</p>
-          </div>
         </section>
       </aside>
     </main>
@@ -267,12 +286,13 @@
     <script src="../shared/blockly/core-toolbox.js?v=1.0"></script>
     <script src="../shared/runtime/program-control.js?v=1.0"></script>
     <script src="../shared/help/help-ui.js?v=1.0"></script>
-    <script src="./help-content.js?v=2.0"></script>
+    <script src="./help-content.js?v=3.0"></script>
     <script src="./dining-room-model.js?v=1.0"></script>
     <script src="./simulator.js?v=3.0"></script>
-    <script src="./dining-room-controller.js?v=1.0"></script>
+    <script src="./dining-room-controller.js?v=2.0"></script>
     <script src="./drivetrain.js"></script>
     <script src="./blocks.js?v=3.0"></script>
-    <script src="./app.js?v=3.0"></script>
+    <script src="./layout.js?v=1.0"></script>
+    <script src="./app.js?v=4.0"></script>
   </body>
 </html>

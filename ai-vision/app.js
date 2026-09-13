@@ -24,6 +24,8 @@
   let running = false;
   let programControl = null;
   let blockLibrary = null;
+  let layoutController = null;
+  let blocklyResizeFrame = null;
   let saveStatusTimer = null;
   let snapshotGuidanceShown = false;
   let activeVisionSignature = null;
@@ -63,6 +65,27 @@
     elements.blockLibraryDialog = document.getElementById("block-library-dialog");
     elements.blockLibraryList = document.getElementById("block-library-list");
     elements.blockLibraryClose = document.getElementById("block-library-close");
+    elements.workbench = document.getElementById("vision-workbench");
+    elements.layoutDivider = document.getElementById("layout-divider");
+  }
+
+  function scheduleBlocklyResize() {
+    if (!workspace || !window.Blockly || blocklyResizeFrame !== null) return;
+    blocklyResizeFrame = window.requestAnimationFrame(() => {
+      blocklyResizeFrame = null;
+      Blockly.svgResize(workspace);
+    });
+  }
+
+  function initLayout() {
+    if (!window.CVSVisionLayout || !elements.workbench || !elements.layoutDivider) return false;
+    layoutController = window.CVSVisionLayout.create({
+      workbench: elements.workbench,
+      divider: elements.layoutDivider,
+      onResize: scheduleBlocklyResize,
+    });
+    window.cvsVisionLayout = layoutController;
+    return true;
   }
 
   function renderProgramState(state) {
@@ -767,11 +790,14 @@
     }
 
     if ("ResizeObserver" in window) {
-      const resizeObserver = new ResizeObserver(() => Blockly.svgResize(workspace));
+      const resizeObserver = new ResizeObserver(scheduleBlocklyResize);
       resizeObserver.observe(document.getElementById("blockly-host"));
     } else {
-      window.addEventListener("resize", () => Blockly.svgResize(workspace));
+      window.addEventListener("resize", scheduleBlocklyResize);
     }
+
+    if (layoutController) layoutController.refresh();
+    scheduleBlocklyResize();
 
     return true;
   }
@@ -797,6 +823,7 @@
 
   function init() {
     getElements();
+    initLayout();
     programControl = window.CVSProgramControl.create({
       stopMotion: () => window.Drivetrain.stop(),
       onStateChange: renderProgramState,

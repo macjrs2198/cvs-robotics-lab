@@ -33,6 +33,7 @@ No build command or configuration file is required.
 
 - **Save / Load** stores the Blockly program and persistent scene/camera/start setup in this browser and device.
 - **Export / Import** downloads or opens a portable `CVS-AI-Vision-Program.json` file with those settings.
+- The desktop programming/simulation split is remembered separately as a device-only view preference. It is never included in saved or exported student programs, and clearing a program does not reset it.
 
 Existing saved and portable projects continue to load without being rewritten. If a project reads an AI Vision reporter before taking a snapshot, it receives a compatibility message so the student can add snapshot capture inside the appropriate sensing loop.
 
@@ -70,6 +71,7 @@ The apparent source discrepancy between 54 and 69.625 inches is resolved: 54 inc
 - One configurable four-side camera with rigid mount and 0°/60° head presets
 - Actual supplied fiducial artwork IDs 0–20 projected from 3D marker geometry
 - A compact top-down, debug-only World View showing the shared robot position, heading, target, and 60-degree camera field of view
+- An expandable desktop World View beside a camera preview capped at its native 320 × 240 content size, with one mouse-, touch-, and keyboard-accessible layout divider
 - Explicit Take Snapshot sensing with immutable object lists, count, 1-based selection, identity, and image-space values
 - Full-footprint Dining Room wall/table collision with anti-tunneling substeps
 - Run, stop, and reset controls
@@ -89,7 +91,9 @@ The apparent source discrepancy between 54 and 69.625 inches is resolved: 54 inc
 - `index.html` — page structure and Blockly CDN loading
 - `styles.css` — responsive, touchscreen-friendly layout
 - `dining-room-model.js` — verified scene data, robot collision, camera transforms, projection, and fiducial visibility
-- `simulator.js` — scene integration, immutable snapshots, browser rendering, setup controls, and draggable target simulation
+- `simulator.js` — ball-world model and immutable snapshot primitives
+- `dining-room-controller.js` — two-scene browser rendering, setup controls, and draggable target simulation
+- `layout.js` — isolated responsive divider behavior and device-only layout preference
 - `drivetrain.js` — independent drivetrain command state and validation
 - `blocks.js` — Blockly block definitions and toolbox setup
 - `app.js` — block program interpreter, controls, output, local saving, and portable program files

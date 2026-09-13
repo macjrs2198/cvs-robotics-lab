@@ -33,7 +33,7 @@
       }),
       Object.freeze({
         heading: "World View is a debug view",
-        body: "World View shows chassis heading, camera mount/view, and physical blocking for teaching. Those true coordinates and collision details are not Blockly sensors.",
+        body: "World View shows chassis heading, camera mount/view, and physical blocking for teaching. Those true coordinates and collision details are not Blockly sensors. On wide screens, drag the divider—or focus it and use Left/Right arrows—to resize the programming and simulation areas; this device remembers that view preference, while narrower screens stack automatically.",
       }),
       Object.freeze({ common: "runtime" }),
       Object.freeze({ common: "blockLibrary" }),

@@ -34,8 +34,11 @@
   let cameraElement = null;
   let targetElement = null;
   let diningCameraCanvas = null;
+  let worldStageElement = null;
   let worldMapElement = null;
   let diningWorldCanvas = null;
+  let worldMapBackgroundElement = null;
+  let worldMapGridElement = null;
   let worldMapFovElement = null;
   let worldMapCameraAxisElement = null;
   let worldMapRobotElement = null;
@@ -61,6 +64,11 @@
   let dragOffsetY = 0;
   let animationFrameId = null;
   let previousFrameTime = null;
+  let worldResizeFrameId = null;
+  let worldResizeObserver = null;
+  let worldDisplayWidth = 320;
+  let worldDisplayHeight = 160;
+  let worldPixelRatio = 1;
   let initialized = false;
   const markerImages = [];
   const markerImageFailures = new Set();
@@ -637,11 +645,50 @@
     context.closePath();
   }
 
+  function resizeWorldSurface() {
+    if (!worldStageElement || !worldMapElement || !diningWorldCanvas) return false;
+    const nextWidth = Math.max(1, Math.round(worldStageElement.clientWidth || worldDisplayWidth));
+    const nextHeight = Math.max(1, Math.round(worldStageElement.clientHeight || worldDisplayHeight));
+    const nextPixelRatio = Math.min(Math.max(Number(window.devicePixelRatio) || 1, 1), 2);
+    const backingWidth = Math.max(1, Math.round(nextWidth * nextPixelRatio));
+    const backingHeight = Math.max(1, Math.round(nextHeight * nextPixelRatio));
+    const changed = nextWidth !== worldDisplayWidth
+      || nextHeight !== worldDisplayHeight
+      || nextPixelRatio !== worldPixelRatio
+      || diningWorldCanvas.width !== backingWidth
+      || diningWorldCanvas.height !== backingHeight;
+
+    worldDisplayWidth = nextWidth;
+    worldDisplayHeight = nextHeight;
+    worldPixelRatio = nextPixelRatio;
+    worldMapElement.setAttribute("viewBox", `0 0 ${nextWidth} ${nextHeight}`);
+    worldMapBackgroundElement.setAttribute("width", nextWidth);
+    worldMapBackgroundElement.setAttribute("height", nextHeight);
+    worldMapGridElement.setAttribute("width", nextWidth);
+    worldMapGridElement.setAttribute("height", nextHeight);
+    if (diningWorldCanvas.width !== backingWidth) diningWorldCanvas.width = backingWidth;
+    if (diningWorldCanvas.height !== backingHeight) diningWorldCanvas.height = backingHeight;
+    return changed;
+  }
+
+  function scheduleWorldSurfaceResize() {
+    if (worldResizeFrameId !== null) return;
+    worldResizeFrameId = window.requestAnimationFrame(() => {
+      worldResizeFrameId = null;
+      if (resizeWorldSurface() && initialized) renderWorldView();
+    });
+  }
+
   function renderDiningWorld() {
     if (!diningWorldCanvas || !diningState) return;
     const context = diningWorldCanvas.getContext("2d");
-    const layout = diningModel.layoutWorldView(diningState, diningWorldCanvas.width, diningWorldCanvas.height);
+    const layout = diningModel.layoutWorldView(diningState, worldDisplayWidth, worldDisplayHeight);
+    const markerLabelSize = Math.min(Math.max(layout.scale * 2.15, 8), 11);
+    const wallMarkerRadius = Math.min(Math.max(markerLabelSize * 0.72, 5.75), 7.25);
+    const legendLabelSize = Math.min(Math.max(layout.scale * 2.25, 9), 12);
     context.setTransform(1, 0, 0, 1, 0, 0);
+    context.clearRect(0, 0, diningWorldCanvas.width, diningWorldCanvas.height);
+    context.setTransform(worldPixelRatio, 0, 0, worldPixelRatio, 0, 0);
     context.fillStyle = "#050e12";
     context.fillRect(0, 0, layout.width, layout.height);
 
@@ -717,7 +764,7 @@
     context.restore();
 
     context.save();
-    context.font = "700 6px Space Mono, Consolas, monospace";
+    context.font = `700 ${markerLabelSize}px Space Mono, Consolas, monospace`;
     context.textAlign = "center";
     context.textBaseline = "middle";
     layout.fiducials.forEach((marker) => {
@@ -727,7 +774,7 @@
       } else {
         context.fillStyle = "#f5fbf8";
         context.beginPath();
-        context.arc(marker.x, marker.y, 2.3, 0, Math.PI * 2);
+        context.arc(marker.x, marker.y, wallMarkerRadius, 0, Math.PI * 2);
         context.fill();
         context.fillStyle = "#06120f";
         context.fillText(String(marker.id), marker.x, marker.y + 0.2);
@@ -761,7 +808,7 @@
     context.stroke();
 
     context.fillStyle = "rgba(151, 224, 208, 0.82)";
-    context.font = "700 7px Space Mono, Consolas, monospace";
+    context.font = `700 ${legendLabelSize}px Space Mono, Consolas, monospace`;
     context.textAlign = "left";
     context.textBaseline = "top";
     context.fillText("BLUE / RED", layout.competitionInterior.x + 3, layout.competitionInterior.y + 3);
@@ -796,9 +843,11 @@
 
   function renderBallWorld() {
     if (!worldMapElement) return;
-    const layout = ballModel.layoutWorldView(ballWorld);
+    const layout = ballModel.layoutWorldView(ballWorld, worldDisplayWidth, worldDisplayHeight);
     const robot = layout.robot;
     const target = layout.target;
+    const labelSize = Math.min(Math.max(Math.min(layout.width, layout.height) / 62, 8), 11);
+    worldMapElement.style.setProperty("--world-map-label-size", `${labelSize}px`);
     const targetLabelOnRight = target.x < layout.width - 66;
     const robotLabelOnRight = robot.x < layout.width - 62;
 
@@ -965,9 +1014,11 @@
 
   function pointerToSensorUnits(event) {
     const bounds = cameraElement.getBoundingClientRect();
+    const contentWidth = Math.max(1, cameraElement.clientWidth);
+    const contentHeight = Math.max(1, cameraElement.clientHeight);
     return {
-      x: ((event.clientX - bounds.left) / bounds.width) * SENSOR_WIDTH,
-      y: ((event.clientY - bounds.top) / bounds.height) * SENSOR_HEIGHT
+      x: ((event.clientX - bounds.left - cameraElement.clientLeft) / contentWidth) * SENSOR_WIDTH,
+      y: ((event.clientY - bounds.top - cameraElement.clientTop) / contentHeight) * SENSOR_HEIGHT
     };
   }
 
@@ -1019,8 +1070,11 @@
     cameraElement = document.getElementById("camera-view");
     targetElement = document.getElementById("vision-target");
     diningCameraCanvas = document.getElementById("dining-camera-canvas");
+    worldStageElement = document.getElementById("world-stage");
     worldMapElement = document.getElementById("world-map");
     diningWorldCanvas = document.getElementById("dining-world-canvas");
+    worldMapBackgroundElement = worldMapElement && worldMapElement.querySelector(".world-map-background");
+    worldMapGridElement = worldMapElement && worldMapElement.querySelector(".world-map-grid");
     worldMapFovElement = document.getElementById("world-map-fov");
     worldMapCameraAxisElement = document.getElementById("world-map-camera-axis");
     worldMapRobotElement = document.getElementById("world-map-robot");
@@ -1043,7 +1097,8 @@
     worldHeadingElement = document.getElementById("world-heading");
 
     const required = [
-      cameraElement, targetElement, diningCameraCanvas, worldMapElement, diningWorldCanvas,
+      cameraElement, targetElement, diningCameraCanvas, worldStageElement, worldMapElement,
+      diningWorldCanvas, worldMapBackgroundElement, worldMapGridElement,
       worldMapFovElement, worldMapCameraAxisElement, worldMapRobotElement,
       worldMapRobotLabelElement, worldMapTargetElement, worldMapTargetLabelElement,
       worldMapDistanceElement, worldMapBearingElement, worldMapHeadingElement,
@@ -1069,6 +1124,11 @@
     cameraHeightInputElement.addEventListener("change", handleHeightChange);
     lookForwardButton.addEventListener("click", () => setHeadPreset("forward"));
     lookDownButton.addEventListener("click", () => setHeadPreset("down"));
+    if ("ResizeObserver" in window) {
+      worldResizeObserver = new ResizeObserver(scheduleWorldSurfaceResize);
+      worldResizeObserver.observe(worldStageElement);
+    }
+    window.addEventListener("resize", scheduleWorldSurfaceResize);
   }
 
   function init() {
@@ -1076,6 +1136,7 @@
     getElements();
     populateStartPoseOptions();
     bindEvents();
+    resizeWorldSurface();
     initialized = true;
     applySettings(settings, { notify: false });
     loadMarkerImages();
