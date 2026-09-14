@@ -1,0 +1,156 @@
+{
+  "format": "cvs-robotics-program",
+  "formatVersion": 1,
+  "app": "cvs-ai-vision",
+  "appVersion": "3.0",
+  "workspace": {
+    "variables": [
+      {
+        "name": "testX",
+        "id": "testX"
+      }
+    ],
+    "blocks": {
+      "languageVersion": 0,
+      "blocks": [
+        {
+          "type": "core_when_started",
+          "id": "else-if-diagnostic-start",
+          "next": {
+            "block": {
+              "type": "variables_set",
+              "id": "else-if-diagnostic-set-x",
+              "fields": {
+                "VAR": {
+                  "id": "testX"
+                }
+              },
+              "inputs": {
+                "VALUE": {
+                  "shadow": {
+                    "type": "math_number",
+                    "id": "else-if-diagnostic-x-value",
+                    "fields": {
+                      "NUM": 250
+                    }
+                  }
+                }
+              },
+              "next": {
+                "block": {
+                  "type": "controls_if",
+                  "id": "else-if-diagnostic-conditional",
+                  "inputs": {
+                    "IF0": {
+                      "block": {
+                        "type": "logic_compare",
+                        "id": "else-if-diagnostic-left-condition",
+                        "fields": {
+                          "OP": "LT"
+                        },
+                        "inputs": {
+                          "A": {
+                            "block": {
+                              "type": "variables_get",
+                              "id": "else-if-diagnostic-left-x",
+                              "fields": {
+                                "VAR": {
+                                  "id": "testX"
+                                }
+                              }
+                            }
+                          },
+                          "B": {
+                            "shadow": {
+                              "type": "math_number",
+                              "id": "else-if-diagnostic-left-boundary",
+                              "fields": {
+                                "NUM": 140
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "DO0": {
+                      "block": {
+                        "type": "core_print_text",
+                        "id": "else-if-diagnostic-left-output",
+                        "fields": {
+                          "TEXT": "LEFT"
+                        }
+                      }
+                    },
+                    "IF1": {
+                      "block": {
+                        "type": "logic_compare",
+                        "id": "else-if-diagnostic-right-condition",
+                        "fields": {
+                          "OP": "GT"
+                        },
+                        "inputs": {
+                          "A": {
+                            "block": {
+                              "type": "variables_get",
+                              "id": "else-if-diagnostic-right-x",
+                              "fields": {
+                                "VAR": {
+                                  "id": "testX"
+                                }
+                              }
+                            }
+                          },
+                          "B": {
+                            "shadow": {
+                              "type": "math_number",
+                              "id": "else-if-diagnostic-right-boundary",
+                              "fields": {
+                                "NUM": 180
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "DO1": {
+                      "block": {
+                        "type": "core_print_text",
+                        "id": "else-if-diagnostic-right-output",
+                        "fields": {
+                          "TEXT": "RIGHT - expected result"
+                        }
+                      }
+                    },
+                    "ELSE": {
+                      "block": {
+                        "type": "core_print_text",
+                        "id": "else-if-diagnostic-center-output",
+                        "fields": {
+                          "TEXT": "CENTER - BUG: ELSE IF was skipped"
+                        }
+                      }
+                    }
+                  },
+                  "extraState": {
+                    "elseIfCount": 1,
+                    "hasElse": true
+                  }
+                }
+              }
+            }
+          },
+          "x": 24,
+          "y": 24
+        }
+      ]
+    }
+  },
+  "settings": {
+    "scene": "ball",
+    "camera": {
+      "mount": "front",
+      "height": 12
+    },
+    "startPose": "ball-default"
+  }
+}

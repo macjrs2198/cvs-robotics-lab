@@ -364,13 +364,19 @@
             runId,
           );
           break;
-        case "controls_if":
-          if (Boolean(evaluateValue(inputBlock(block, "IF0")))) {
-            await executeStatementChain(inputBlock(block, "DO0"), runId);
-          } else {
+        case "controls_if": {
+          let branchMatched = false;
+          for (let branchIndex = 0; block.getInput(`IF${branchIndex}`); branchIndex += 1) {
+            if (!Boolean(evaluateValue(inputBlock(block, `IF${branchIndex}`)))) continue;
+            await executeStatementChain(inputBlock(block, `DO${branchIndex}`), runId);
+            branchMatched = true;
+            break;
+          }
+          if (!branchMatched && block.getInput("ELSE")) {
             await executeStatementChain(inputBlock(block, "ELSE"), runId);
           }
           break;
+        }
         case "control_if":
           if (Boolean(evaluateValue(inputBlock(block, "CONDITION")))) {
             await executeStatementChain(inputBlock(block, "DO"), runId);

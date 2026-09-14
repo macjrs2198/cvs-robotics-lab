@@ -8,6 +8,9 @@ const vm = require("node:vm");
 const aiVisionRoot = path.join(__dirname, "..");
 const appSource = fs.readFileSync(path.join(aiVisionRoot, "app.js"), "utf8");
 const blocksSource = fs.readFileSync(path.join(aiVisionRoot, "blocks.js"), "utf8");
+const elseIfDiagnosticProgram = JSON.parse(
+  fs.readFileSync(path.join(__dirname, "fixtures", "else-if-diagnostic-program.json"), "utf8"),
+);
 const reporterMappings = {
   vision_exists: "exists",
   vision_object_count: "count",
@@ -189,9 +192,96 @@ function statementBlock(type, options = {}) {
     type,
     isEnabled: () => true,
     getFieldValue(name) { return options.fields?.[name] ?? null; },
+    getInput(name) {
+      return Object.prototype.hasOwnProperty.call(options.inputs || {}, name) ? { name } : null;
+    },
     getInputTargetBlock(name) { return options.inputs?.[name] || null; },
     getNextBlock() { return options.next || null; },
   };
+}
+
+function booleanBlock(value, onEvaluate = null) {
+  return {
+    type: "logic_boolean",
+    isEnabled: () => true,
+    getFieldValue(name) {
+      if (name === "BOOL" && onEvaluate) onEvaluate();
+      return name === "BOOL" && value ? "TRUE" : "FALSE";
+    },
+  };
+}
+
+function variableBlock(name) {
+  return statementBlock("variables_get", { fields: { VAR: name } });
+}
+
+function comparisonBlock(variableName, operation, value) {
+  return statementBlock("logic_compare", {
+    fields: { OP: operation },
+    inputs: {
+      A: variableBlock(variableName),
+      B: numberBlock(value),
+    },
+  });
+}
+
+function printBlock(text, next = null) {
+  return statementBlock("core_print_text", { fields: { TEXT: text }, next });
+}
+
+function controlsIfBlock(branches, options = {}) {
+  const inputs = {};
+  branches.forEach((branch, index) => {
+    inputs[`IF${index}`] = branch.condition;
+    inputs[`DO${index}`] = branch.body;
+  });
+  if (Object.prototype.hasOwnProperty.call(options, "elseBranch")) {
+    inputs.ELSE = options.elseBranch;
+  }
+  return statementBlock("controls_if", { inputs, next: options.next || null });
+}
+
+function blockFromSerializedState(blockState) {
+  if (!blockState) return null;
+  const fields = { ...(blockState.fields || {}) };
+  if (fields.VAR && typeof fields.VAR === "object") fields.VAR = fields.VAR.id;
+  const inputs = Object.fromEntries(
+    Object.entries(blockState.inputs || {}).map(([name, input]) => [
+      name,
+      blockFromSerializedState(input.block || input.shadow),
+    ]),
+  );
+  return statementBlock(blockState.type, {
+    fields,
+    inputs,
+    next: blockFromSerializedState(blockState.next?.block),
+  });
+}
+
+function outputLines(output) {
+  return output.children.map((line) => line.textContent);
+}
+
+function activeProgramControl(options = {}) {
+  let active = true;
+  return {
+    isActive: () => active,
+    waitWhilePaused: async () => active,
+    delay: options.delay || (async () => active),
+    stop(reason) {
+      active = false;
+      if (options.onStop) options.onStop(reason);
+    },
+  };
+}
+
+async function runStatementChain(firstBlock, control = activeProgramControl()) {
+  const { runtime } = makeRuntime();
+  const output = outputConsoleStub();
+  runtime.beginRunForTest(output);
+  runtime.setProgramControlForTest(control);
+  await runtime.executeStatementChain(firstBlock, 1);
+  return outputLines(output);
 }
 
 function testGuidanceAndReporters() {
@@ -357,11 +447,220 @@ async function testCommandDispatch() {
   ]);
 }
 
+async function testControlsIfBranchSelection() {
+  let laterConditionEvaluations = 0;
+  const afterFirst = printBlock("AFTER");
+  const firstMatch = controlsIfBlock([
+    { condition: booleanBlock(true), body: printBlock("FIRST") },
+    {
+      condition: booleanBlock(true, () => { laterConditionEvaluations += 1; }),
+      body: printBlock("LATER"),
+    },
+  ], {
+    elseBranch: printBlock("ELSE"),
+    next: afterFirst,
+  });
+  assert.deepEqual(await runStatementChain(firstMatch), ["FIRST", "AFTER"]);
+  assert.equal(laterConditionEvaluations, 0, "conditions after the first match must not be evaluated");
+
+  const firstElseIf = controlsIfBlock([
+    { condition: booleanBlock(false), body: printBlock("IF0") },
+    { condition: booleanBlock(true), body: printBlock("IF1") },
+  ], { elseBranch: printBlock("ELSE") });
+  assert.deepEqual(await runStatementChain(firstElseIf), ["IF1"], "the first ELSE IF branch must execute");
+
+  const laterElseIf = controlsIfBlock([
+    { condition: booleanBlock(false), body: printBlock("IF0") },
+    { condition: null, body: printBlock("IF1") },
+    { condition: booleanBlock(true), body: printBlock("IF2") },
+  ], { elseBranch: printBlock("ELSE") });
+  assert.deepEqual(
+    await runStatementChain(laterElseIf),
+    ["IF2"],
+    "a configured but unconnected condition must be false without hiding later ELSE IF branches",
+  );
+
+  const allFalseWithElse = controlsIfBlock([
+    { condition: booleanBlock(false), body: printBlock("IF0") },
+    { condition: booleanBlock(false), body: printBlock("IF1") },
+  ], { elseBranch: printBlock("ELSE") });
+  assert.deepEqual(await runStatementChain(allFalseWithElse), ["ELSE"]);
+
+  const allFalseWithoutElse = controlsIfBlock([
+    { condition: booleanBlock(false), body: printBlock("IF0") },
+    { condition: booleanBlock(false), body: printBlock("IF1") },
+  ], { next: printBlock("CONTINUED") });
+  assert.deepEqual(await runStatementChain(allFalseWithoutElse), ["CONTINUED"]);
+}
+
+async function testControlsIfDiagnosticMatrix() {
+  const cases = [
+    [100, "LEFT"],
+    [160, "CENTER"],
+    [250, "RIGHT - expected result"],
+    [140, "CENTER"],
+    [180, "CENTER"],
+  ];
+
+  for (const [testX, expected] of cases) {
+    const conditional = controlsIfBlock([
+      {
+        condition: comparisonBlock("testX", "LT", 140),
+        body: printBlock("LEFT"),
+      },
+      {
+        condition: comparisonBlock("testX", "GT", 180),
+        body: printBlock("RIGHT - expected result"),
+      },
+    ], { elseBranch: printBlock("CENTER") });
+    const program = statementBlock("variables_set", {
+      fields: { VAR: "testX" },
+      inputs: { VALUE: numberBlock(testX) },
+      next: conditional,
+    });
+
+    assert.deepEqual(
+      await runStatementChain(program),
+      [expected],
+      `testX=${testX} must select ${expected}`,
+    );
+  }
+}
+
+async function testSerializedElseIfDiagnostic() {
+  const startBlock = blockFromSerializedState(elseIfDiagnosticProgram.workspace.blocks.blocks[0]);
+  assert.deepEqual(
+    await runStatementChain(startBlock.getNextBlock()),
+    ["RIGHT - expected result"],
+    "the portable testX=250 diagnostic must execute its serialized ELSE IF branch",
+  );
+}
+
+async function testNestedControlsIf() {
+  const inner = controlsIfBlock([
+    { condition: booleanBlock(false), body: printBlock("INNER IF0") },
+    { condition: booleanBlock(true), body: printBlock("INNER IF1") },
+  ], { elseBranch: printBlock("INNER ELSE") });
+  const outer = controlsIfBlock([
+    { condition: booleanBlock(false), body: printBlock("OUTER IF0") },
+    { condition: booleanBlock(true), body: inner },
+  ], {
+    elseBranch: printBlock("OUTER ELSE"),
+    next: printBlock("AFTER"),
+  });
+
+  assert.deepEqual(await runStatementChain(outer), ["INNER IF1", "AFTER"]);
+}
+
+async function testWaitInsideSelectedElseIf() {
+  let releaseDelay = null;
+  const trace = [];
+  const control = activeProgramControl({
+    delay: async (milliseconds) => {
+      trace.push(["delay-start", milliseconds]);
+      await new Promise((resolve) => { releaseDelay = resolve; });
+      trace.push(["delay-finish", milliseconds]);
+      return true;
+    },
+  });
+  const wait = statementBlock("core_wait_seconds", {
+    inputs: { SECONDS: numberBlock(0.025) },
+    next: printBlock("BRANCH FINISHED"),
+  });
+  const conditional = controlsIfBlock([
+    { condition: booleanBlock(false), body: printBlock("IF0") },
+    { condition: booleanBlock(true), body: wait },
+  ], {
+    elseBranch: printBlock("ELSE"),
+    next: printBlock("AFTER"),
+  });
+  const { runtime } = makeRuntime();
+  const output = outputConsoleStub();
+  runtime.beginRunForTest(output);
+  runtime.setProgramControlForTest(control);
+
+  const execution = runtime.executeStatementChain(conditional, 1);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(typeof releaseDelay, "function", "the selected ELSE IF branch must enter its wait");
+  assert.deepEqual(outputLines(output), [], "branch and outer statements must wait for the async command");
+  assert.deepEqual(trace, [["delay-start", 25]]);
+
+  releaseDelay();
+  await execution;
+  assert.deepEqual(trace, [["delay-start", 25], ["delay-finish", 25]]);
+  assert.deepEqual(outputLines(output), ["BRANCH FINISHED", "AFTER"]);
+}
+
+async function testStopInsideSelectedElseIf() {
+  const stopReasons = [];
+  const control = activeProgramControl({ onStop: (reason) => stopReasons.push(reason) });
+  const stop = statementBlock("core_stop_program", { next: printBlock("BRANCH TAIL") });
+  const selectedBranch = printBlock("SELECTED", stop);
+  const conditional = controlsIfBlock([
+    { condition: booleanBlock(false), body: printBlock("IF0") },
+    { condition: booleanBlock(true), body: selectedBranch },
+  ], {
+    elseBranch: printBlock("ELSE"),
+    next: printBlock("OUTER TAIL"),
+  });
+
+  assert.deepEqual(await runStatementChain(conditional, control), ["SELECTED"]);
+  assert.deepEqual(stopReasons, ["stop program"]);
+}
+
+async function testPauseResumeBeforeControlsIf() {
+  let active = true;
+  let paused = true;
+  let releasePause = null;
+  const control = {
+    isActive: () => active,
+    waitWhilePaused() {
+      if (!active) return Promise.resolve(false);
+      if (!paused) return Promise.resolve(true);
+      return new Promise((resolve) => {
+        releasePause = () => {
+          paused = false;
+          resolve(active);
+        };
+      });
+    },
+    delay: async () => active,
+    stop() { active = false; },
+  };
+  const conditional = controlsIfBlock([
+    { condition: booleanBlock(false), body: printBlock("IF0") },
+    { condition: booleanBlock(true), body: printBlock("RESUMED") },
+  ], {
+    elseBranch: printBlock("ELSE"),
+    next: printBlock("AFTER"),
+  });
+  const { runtime } = makeRuntime();
+  const output = outputConsoleStub();
+  runtime.beginRunForTest(output);
+  runtime.setProgramControlForTest(control);
+
+  const execution = runtime.executeStatementChain(conditional, 1);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(typeof releasePause, "function");
+  assert.deepEqual(outputLines(output), [], "no condition or branch should execute while paused");
+
+  releasePause();
+  await execution;
+  assert.deepEqual(outputLines(output), ["RESUMED", "AFTER"]);
+}
+
 async function main() {
   testGuidanceAndReporters();
   testSignatureDefaultsAndMigration();
   testTransactionalSettings();
   await testCommandDispatch();
+  await testControlsIfBranchSelection();
+  await testControlsIfDiagnosticMatrix();
+  await testSerializedElseIfDiagnostic();
+  await testNestedControlsIf();
+  await testWaitInsideSelectedElseIf();
+  await testStopInsideSelectedElseIf();
+  await testPauseResumeBeforeControlsIf();
 
   assert.match(appSource, /localStorage\.setItem\(STORAGE_KEY, JSON\.stringify\(createProgramFile\(\)\)\)/);
   assert.match(
@@ -372,6 +671,7 @@ async function main() {
   console.log("PASS: VEX-style snapshot, item selection, count, fiducial identity, and camera-head blocks are wired");
   console.log("PASS: legacy snapshots default by scene and raw saved workspaces remain loadable");
   console.log("PASS: simulator settings validate and apply before workspace mutation with rollback");
+  console.log("PASS: Blockly IF / ELSE IF / ELSE execution preserves nesting, waits, pause/resume, and Stop");
   console.log("PASS: Last Snapshot guidance, fallbacks, and portable format version 1 remain compatible");
 }
 
