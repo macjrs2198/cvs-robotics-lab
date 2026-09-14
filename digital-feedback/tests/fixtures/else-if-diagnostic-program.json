@@ -1,0 +1,181 @@
+{
+  "format": "cvs-robotics-program",
+  "formatVersion": 1,
+  "app": "cvs-digital-feedback",
+  "appVersion": "2.0",
+  "workspace": {
+    "variables": [
+      {
+        "name": "testX",
+        "id": "testX"
+      }
+    ],
+    "blocks": {
+      "languageVersion": 0,
+      "blocks": [
+        {
+          "type": "core_when_started",
+          "id": "digital-else-if-diagnostic-start",
+          "next": {
+            "block": {
+              "type": "variables_set",
+              "id": "digital-else-if-diagnostic-set-x",
+              "fields": {
+                "VAR": {
+                  "id": "testX"
+                }
+              },
+              "inputs": {
+                "VALUE": {
+                  "shadow": {
+                    "type": "math_number",
+                    "id": "digital-else-if-diagnostic-x-value",
+                    "fields": {
+                      "NUM": 250
+                    }
+                  }
+                }
+              },
+              "next": {
+                "block": {
+                  "type": "controls_if",
+                  "id": "digital-else-if-diagnostic-conditional",
+                  "inputs": {
+                    "IF0": {
+                      "block": {
+                        "type": "logic_compare",
+                        "id": "digital-else-if-diagnostic-left-condition",
+                        "fields": {
+                          "OP": "LT"
+                        },
+                        "inputs": {
+                          "A": {
+                            "block": {
+                              "type": "variables_get",
+                              "id": "digital-else-if-diagnostic-left-x",
+                              "fields": {
+                                "VAR": {
+                                  "id": "testX"
+                                }
+                              }
+                            }
+                          },
+                          "B": {
+                            "shadow": {
+                              "type": "math_number",
+                              "id": "digital-else-if-diagnostic-left-boundary",
+                              "fields": {
+                                "NUM": 140
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "DO0": {
+                      "block": {
+                        "type": "core_print_text",
+                        "id": "digital-else-if-diagnostic-left-output",
+                        "fields": {
+                          "TEXT": "LEFT"
+                        }
+                      }
+                    },
+                    "IF1": {
+                      "block": {
+                        "type": "logic_compare",
+                        "id": "digital-else-if-diagnostic-right-condition",
+                        "fields": {
+                          "OP": "GT"
+                        },
+                        "inputs": {
+                          "A": {
+                            "block": {
+                              "type": "variables_get",
+                              "id": "digital-else-if-diagnostic-right-x",
+                              "fields": {
+                                "VAR": {
+                                  "id": "testX"
+                                }
+                              }
+                            }
+                          },
+                          "B": {
+                            "shadow": {
+                              "type": "math_number",
+                              "id": "digital-else-if-diagnostic-right-boundary",
+                              "fields": {
+                                "NUM": 180
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "DO1": {
+                      "block": {
+                        "type": "core_print_text",
+                        "id": "digital-else-if-diagnostic-right-output",
+                        "fields": {
+                          "TEXT": "RIGHT"
+                        }
+                      }
+                    },
+                    "ELSE": {
+                      "block": {
+                        "type": "core_print_text",
+                        "id": "digital-else-if-diagnostic-center-output",
+                        "fields": {
+                          "TEXT": "CENTER"
+                        }
+                      }
+                    }
+                  },
+                  "extraState": {
+                    "elseIfCount": 1,
+                    "hasElse": true
+                  }
+                }
+              }
+            }
+          },
+          "x": 24,
+          "y": 24
+        }
+      ]
+    }
+  },
+  "settings": {
+    "activityId": "line-follower",
+    "lineFollower": {
+      "sensorConfiguration": {
+        "front": {
+          "mode": "dual",
+          "longitudinalOffset": 42,
+          "spacing": 42
+        },
+        "rear": {
+          "mode": "none",
+          "longitudinalOffset": 42,
+          "spacing": 42
+        }
+      },
+      "trackPoints": [
+        { "x": 74, "y": 568 },
+        { "x": 170, "y": 590 },
+        { "x": 275, "y": 535 },
+        { "x": 344, "y": 407 },
+        { "x": 424, "y": 270 },
+        { "x": 540, "y": 184 },
+        { "x": 650, "y": 216 },
+        { "x": 734, "y": 342 }
+      ]
+    },
+    "contactSwitch": {
+      "stopPosition": {
+        "x": 510,
+        "y": 220
+      }
+    }
+  }
+}

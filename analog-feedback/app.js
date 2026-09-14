@@ -390,13 +390,19 @@
             token,
           );
           break;
-        case "controls_if":
-          if (evaluateValue(block.getInputTargetBlock("IF0"))) {
-            await executeChain(block.getInputTargetBlock("DO0"), token);
-          } else {
+        case "controls_if": {
+          let branchMatched = false;
+          for (let branchIndex = 0; block.getInput(`IF${branchIndex}`); branchIndex += 1) {
+            if (!Boolean(evaluateValue(block.getInputTargetBlock(`IF${branchIndex}`)))) continue;
+            await executeChain(block.getInputTargetBlock(`DO${branchIndex}`), token);
+            branchMatched = true;
+            break;
+          }
+          if (!branchMatched && block.getInput("ELSE")) {
             await executeChain(block.getInputTargetBlock("ELSE"), token);
           }
           break;
+        }
         case "analog_if":
           if (evaluateValue(block.getInputTargetBlock("IF0"))) {
             await executeChain(block.getInputTargetBlock("DO0"), token);

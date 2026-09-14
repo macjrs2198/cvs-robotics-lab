@@ -1,0 +1,199 @@
+{
+  "format": "cvs-robotics-program",
+  "formatVersion": 1,
+  "app": "cvs-digital-feedback",
+  "appVersion": "2.0",
+  "workspace": {
+    "blocks": {
+      "languageVersion": 0,
+      "blocks": [
+        {
+          "type": "core_when_started",
+          "id": "digital-line-else-if-start",
+          "next": {
+            "block": {
+              "type": "controls_if",
+              "id": "digital-line-else-if-conditional",
+              "inputs": {
+                "IF0": {
+                  "block": {
+                    "type": "logic_operation",
+                    "id": "digital-line-left-only",
+                    "fields": { "OP": "AND" },
+                    "inputs": {
+                      "A": {
+                        "block": {
+                          "type": "sensor_left_line",
+                          "id": "digital-line-left-on"
+                        }
+                      },
+                      "B": {
+                        "block": {
+                          "type": "logic_negate",
+                          "id": "digital-line-right-off",
+                          "inputs": {
+                            "BOOL": {
+                              "block": {
+                                "type": "sensor_right_line",
+                                "id": "digital-line-right-for-left-check"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "DO0": {
+                  "block": {
+                    "type": "drive_turn_left",
+                    "id": "digital-line-turn-left",
+                    "next": {
+                      "block": {
+                        "type": "core_print_text",
+                        "id": "digital-line-print-left",
+                        "fields": { "TEXT": "LEFT" },
+                        "next": {
+                          "block": {
+                            "type": "core_wait_seconds",
+                            "id": "digital-line-wait-left",
+                            "inputs": {
+                              "SECONDS": {
+                                "shadow": {
+                                  "type": "math_number",
+                                  "id": "digital-line-wait-left-seconds",
+                                  "fields": { "NUM": 1.5 }
+                                }
+                              }
+                            },
+                            "next": {
+                              "block": {
+                                "type": "core_stop_program",
+                                "id": "digital-line-stop-left"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "IF1": {
+                  "block": {
+                    "type": "logic_operation",
+                    "id": "digital-line-right-only",
+                    "fields": { "OP": "AND" },
+                    "inputs": {
+                      "A": {
+                        "block": {
+                          "type": "sensor_right_line",
+                          "id": "digital-line-right-on"
+                        }
+                      },
+                      "B": {
+                        "block": {
+                          "type": "logic_negate",
+                          "id": "digital-line-left-off",
+                          "inputs": {
+                            "BOOL": {
+                              "block": {
+                                "type": "sensor_left_line",
+                                "id": "digital-line-left-for-right-check"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "DO1": {
+                  "block": {
+                    "type": "drive_turn_right",
+                    "id": "digital-line-turn-right",
+                    "next": {
+                      "block": {
+                        "type": "core_print_text",
+                        "id": "digital-line-print-right",
+                        "fields": { "TEXT": "RIGHT" },
+                        "next": {
+                          "block": {
+                            "type": "core_wait_seconds",
+                            "id": "digital-line-wait-right",
+                            "inputs": {
+                              "SECONDS": {
+                                "shadow": {
+                                  "type": "math_number",
+                                  "id": "digital-line-wait-right-seconds",
+                                  "fields": { "NUM": 1.5 }
+                                }
+                              }
+                            },
+                            "next": {
+                              "block": {
+                                "type": "core_stop_program",
+                                "id": "digital-line-stop-right"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "ELSE": {
+                  "block": {
+                    "type": "drive_stop",
+                    "id": "digital-line-stop-driving",
+                    "next": {
+                      "block": {
+                        "type": "core_print_text",
+                        "id": "digital-line-print-stopped",
+                        "fields": { "TEXT": "STOPPED" }
+                      }
+                    }
+                  }
+                }
+              },
+              "extraState": {
+                "elseIfCount": 1,
+                "hasElse": true
+              }
+            }
+          },
+          "x": 24,
+          "y": 24
+        }
+      ]
+    }
+  },
+  "settings": {
+    "activityId": "line-follower",
+    "lineFollower": {
+      "sensorConfiguration": {
+        "front": {
+          "mode": "dual",
+          "longitudinalOffset": 76,
+          "spacing": 24
+        },
+        "rear": {
+          "mode": "none",
+          "longitudinalOffset": 42,
+          "spacing": 42
+        }
+      },
+      "trackPoints": [
+        { "x": 100, "y": 350 },
+        { "x": 140, "y": 280 },
+        { "x": 220, "y": 200 },
+        { "x": 500, "y": 100 }
+      ]
+    },
+    "contactSwitch": {
+      "stopPosition": {
+        "x": 510,
+        "y": 220
+      }
+    }
+  }
+}

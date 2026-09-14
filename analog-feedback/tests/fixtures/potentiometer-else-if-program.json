@@ -1,0 +1,325 @@
+{
+  "format": "cvs-robotics-program",
+  "formatVersion": 1,
+  "app": "cvs-analog-feedback",
+  "appVersion": "2.0",
+  "workspace": {
+    "blocks": {
+      "languageVersion": 0,
+      "blocks": [
+        {
+          "type": "core_when_started",
+          "id": "analog-pot-else-if-start",
+          "next": {
+            "block": {
+              "type": "analog_motor_velocity",
+              "id": "analog-pot-else-if-velocity",
+              "fields": {
+                "DEVICE": "Joint1",
+                "VELOCITY": 20
+              },
+              "next": {
+                "block": {
+                  "type": "controls_repeat_ext",
+                  "id": "analog-pot-else-if-repeat",
+                  "inputs": {
+                    "TIMES": {
+                      "shadow": {
+                        "type": "math_number",
+                        "id": "analog-pot-else-if-repeat-count",
+                        "fields": {
+                          "NUM": 3
+                        }
+                      }
+                    },
+                    "DO": {
+                      "block": {
+                        "type": "controls_if",
+                        "id": "analog-pot-else-if-conditional",
+                        "inputs": {
+                          "IF0": {
+                            "block": {
+                              "type": "analog_less",
+                              "id": "analog-pot-else-if-below",
+                              "inputs": {
+                                "A": {
+                                  "block": {
+                                    "type": "analog_map",
+                                    "id": "analog-pot-else-if-map-below",
+                                    "inputs": {
+                                      "VALUE": {
+                                        "block": {
+                                          "type": "analog_pot_raw",
+                                          "id": "analog-pot-else-if-pot-below",
+                                          "fields": {
+                                            "DEVICE": "Joint1"
+                                          }
+                                        }
+                                      },
+                                      "IN_MIN": {
+                                        "shadow": {
+                                          "type": "math_number",
+                                          "id": "analog-pot-else-if-in-min-below",
+                                          "fields": {
+                                            "NUM": 620
+                                          }
+                                        }
+                                      },
+                                      "IN_MAX": {
+                                        "shadow": {
+                                          "type": "math_number",
+                                          "id": "analog-pot-else-if-in-max-below",
+                                          "fields": {
+                                            "NUM": 3470
+                                          }
+                                        }
+                                      },
+                                      "OUT_MIN": {
+                                        "shadow": {
+                                          "type": "math_number",
+                                          "id": "analog-pot-else-if-out-min-below",
+                                          "fields": {
+                                            "NUM": 0
+                                          }
+                                        }
+                                      },
+                                      "OUT_MAX": {
+                                        "shadow": {
+                                          "type": "math_number",
+                                          "id": "analog-pot-else-if-out-max-below",
+                                          "fields": {
+                                            "NUM": 180
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                },
+                                "B": {
+                                  "shadow": {
+                                    "type": "math_number",
+                                    "id": "analog-pot-else-if-lower-limit",
+                                    "fields": {
+                                      "NUM": 55
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          },
+                          "DO0": {
+                            "block": {
+                              "type": "core_print_text",
+                              "id": "analog-pot-else-if-print-below",
+                              "fields": {
+                                "TEXT": "BELOW - FORWARD"
+                              },
+                              "next": {
+                                "block": {
+                                  "type": "analog_motor_spin",
+                                  "id": "analog-pot-else-if-forward",
+                                  "fields": {
+                                    "DEVICE": "Joint1",
+                                    "DIRECTION": "forward"
+                                  },
+                                  "next": {
+                                    "block": {
+                                      "type": "analog_wait",
+                                      "id": "analog-pot-else-if-forward-wait",
+                                      "fields": {
+                                        "SECONDS": 3
+                                      },
+                                      "next": {
+                                        "block": {
+                                          "type": "analog_motor_stop",
+                                          "id": "analog-pot-else-if-forward-stop",
+                                          "fields": {
+                                            "DEVICE": "Joint1"
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          },
+                          "IF1": {
+                            "block": {
+                              "type": "analog_greater",
+                              "id": "analog-pot-else-if-above",
+                              "inputs": {
+                                "A": {
+                                  "block": {
+                                    "type": "analog_map",
+                                    "id": "analog-pot-else-if-map-above",
+                                    "inputs": {
+                                      "VALUE": {
+                                        "block": {
+                                          "type": "analog_pot_raw",
+                                          "id": "analog-pot-else-if-pot-above",
+                                          "fields": {
+                                            "DEVICE": "Joint1"
+                                          }
+                                        }
+                                      },
+                                      "IN_MIN": {
+                                        "shadow": {
+                                          "type": "math_number",
+                                          "id": "analog-pot-else-if-in-min-above",
+                                          "fields": {
+                                            "NUM": 620
+                                          }
+                                        }
+                                      },
+                                      "IN_MAX": {
+                                        "shadow": {
+                                          "type": "math_number",
+                                          "id": "analog-pot-else-if-in-max-above",
+                                          "fields": {
+                                            "NUM": 3470
+                                          }
+                                        }
+                                      },
+                                      "OUT_MIN": {
+                                        "shadow": {
+                                          "type": "math_number",
+                                          "id": "analog-pot-else-if-out-min-above",
+                                          "fields": {
+                                            "NUM": 0
+                                          }
+                                        }
+                                      },
+                                      "OUT_MAX": {
+                                        "shadow": {
+                                          "type": "math_number",
+                                          "id": "analog-pot-else-if-out-max-above",
+                                          "fields": {
+                                            "NUM": 180
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                },
+                                "B": {
+                                  "shadow": {
+                                    "type": "math_number",
+                                    "id": "analog-pot-else-if-upper-limit",
+                                    "fields": {
+                                      "NUM": 65
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          },
+                          "DO1": {
+                            "block": {
+                              "type": "core_print_text",
+                              "id": "analog-pot-else-if-print-above",
+                              "fields": {
+                                "TEXT": "ABOVE - REVERSE"
+                              },
+                              "next": {
+                                "block": {
+                                  "type": "analog_motor_spin",
+                                  "id": "analog-pot-else-if-reverse",
+                                  "fields": {
+                                    "DEVICE": "Joint1",
+                                    "DIRECTION": "reverse"
+                                  },
+                                  "next": {
+                                    "block": {
+                                      "type": "analog_wait",
+                                      "id": "analog-pot-else-if-reverse-wait",
+                                      "fields": {
+                                        "SECONDS": 1.1
+                                      },
+                                      "next": {
+                                        "block": {
+                                          "type": "analog_motor_stop",
+                                          "id": "analog-pot-else-if-reverse-stop",
+                                          "fields": {
+                                            "DEVICE": "Joint1"
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          },
+                          "ELSE": {
+                            "block": {
+                              "type": "core_print_text",
+                              "id": "analog-pot-else-if-print-within",
+                              "fields": {
+                                "TEXT": "WITHIN - STOPPED"
+                              },
+                              "next": {
+                                "block": {
+                                  "type": "analog_motor_stop",
+                                  "id": "analog-pot-else-if-within-stop",
+                                  "fields": {
+                                    "DEVICE": "Joint1"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        },
+                        "extraState": {
+                          "elseIfCount": 1,
+                          "hasElse": true
+                        }
+                      }
+                    }
+                  },
+                  "next": {
+                    "block": {
+                      "type": "core_stop_program",
+                      "id": "analog-pot-else-if-stop-program"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "x": 24,
+          "y": 24
+        }
+      ]
+    }
+  },
+  "settings": {
+    "jointCount": 1,
+    "calibration": {
+      "Joint1": {
+        "rawMin": 620,
+        "rawMax": 3470,
+        "angleMin": 0,
+        "angleMax": 180
+      },
+      "Joint2": {
+        "rawMin": 540,
+        "rawMax": 3560,
+        "angleMin": -120,
+        "angleMax": 120
+      },
+      "Joint3": {
+        "rawMin": 700,
+        "rawMax": 3380,
+        "angleMin": -120,
+        "angleMax": 120
+      },
+      "Gripper": {
+        "rawMin": 400,
+        "rawMax": 3700,
+        "angleMin": 0,
+        "angleMax": 100
+      }
+    }
+  }
+}
