@@ -16,7 +16,7 @@
       href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap"
       rel="stylesheet"
     >
-    <link rel="stylesheet" href="./styles.css?v=4.0">
+    <link rel="stylesheet" href="./styles.css?v=5.0">
     <link rel="stylesheet" href="../shared/controls.css?v=1.0">
     <link rel="stylesheet" href="../shared/help/help-ui.css?v=1.0">
   </head>
@@ -96,7 +96,7 @@
             <div class="setup-heading-row">
               <div>
                 <p class="section-label">SIMULATION SETUP</p>
-                <h2 id="setup-heading">Scene and camera</h2>
+                <h2 id="setup-heading">Robot setup</h2>
               </div>
               <p id="setup-status" class="setup-status" role="status" aria-live="polite">Ball sandbox ready</p>
             </div>
@@ -113,6 +113,14 @@
                 <select id="start-pose-select" disabled>
                   <option value="ball-default">Center, facing target</option>
                 </select>
+              </label>
+              <label class="setup-control setup-control--length">
+                <span>Length &mdash; front/back</span>
+                <span class="number-unit"><input id="chassis-length-input" type="number" min="6" max="36" step="0.5" value="18" inputmode="decimal"><span>in</span></span>
+              </label>
+              <label class="setup-control setup-control--width">
+                <span>Width &mdash; left/right</span>
+                <span class="number-unit"><input id="chassis-width-input" type="number" min="6" max="36" step="0.5" value="18" inputmode="decimal"><span>in</span></span>
               </label>
               <label class="setup-control setup-control--mount">
                 <span>Mount</span>
@@ -131,6 +139,7 @@
                 <span>Head</span>
                 <div class="head-buttons" role="group" aria-label="Camera head position">
                   <button id="look-forward-button" class="head-button is-active" type="button" aria-pressed="true">Forward</button>
+                  <button id="look-down-45-button" class="head-button" type="button" aria-pressed="false">Down 45&deg;</button>
                   <button id="look-down-button" class="head-button" type="button" aria-pressed="false">Down 60&deg;</button>
                 </div>
               </div>
@@ -179,7 +188,7 @@
             <div class="data-heading-row">
               <p id="data-heading" class="section-label">LAST SNAPSHOT</p>
               <div class="drivetrain-status is-stopped" role="status" aria-live="polite">
-                <span>DRIVE</span>
+                <span>DRIVE CMD</span>
                 <strong id="drivetrain-status-value">STOPPED &mdash; L 0% &middot; R 0%</strong>
               </div>
             </div>
@@ -286,13 +295,13 @@
     <script src="../shared/blockly/core-toolbox.js?v=1.0"></script>
     <script src="../shared/runtime/program-control.js?v=1.0"></script>
     <script src="../shared/help/help-ui.js?v=1.0"></script>
-    <script src="./help-content.js?v=3.0"></script>
-    <script src="./dining-room-model.js?v=1.1"></script>
+    <script src="./help-content.js?v=4.0"></script>
+    <script src="./dining-room-model.js?v=2.0"></script>
     <script src="./simulator.js?v=3.0"></script>
-    <script src="./dining-room-controller.js?v=2.0"></script>
-    <script src="./drivetrain.js"></script>
-    <script src="./blocks.js?v=3.0"></script>
+    <script src="./dining-room-controller.js?v=3.0"></script>
+    <script src="./drivetrain.js?v=2.0"></script>
+    <script src="./blocks.js?v=4.0"></script>
     <script src="./layout.js?v=1.0"></script>
-    <script src="./app.js?v=4.1"></script>
+    <script src="./app.js?v=5.0"></script>
   </body>
 </html>

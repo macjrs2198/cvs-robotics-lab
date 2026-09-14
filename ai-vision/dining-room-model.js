@@ -25,6 +25,7 @@
   const CAMERA_MAX_HEIGHT = 24;
   const CAMERA_DEFAULT_HEIGHT = 12;
   const CAMERA_HEIGHT_STEP = 0.5;
+  const CAMERA_DOWN_45_PITCH_DEGREES = 45;
   const CAMERA_DOWN_PITCH_DEGREES = 60;
   const CAMERA_NEAR_PLANE = 0.05;
   const MIN_PROJECTED_PATTERN_PIXELS = 8;
@@ -39,8 +40,11 @@
   const WALL_SHORT_HALF_LENGTH = 42;
   const WALL_MARKER_PLANE = 65.9969;
   const WALL_MARKER_CENTER_Z = 9;
-  const ROBOT_SIDE = 18;
-  const ROBOT_HALF_SIDE = ROBOT_SIDE / 2;
+  const ROBOT_DEFAULT_LENGTH = 18;
+  const ROBOT_DEFAULT_WIDTH = 18;
+  const ROBOT_DIMENSION_MIN = 6;
+  const ROBOT_DIMENSION_MAX = 36;
+  const ROBOT_DIMENSION_STEP = 0.5;
   const ROBOT_CORNER_RADIUS = 2;
   const ROBOT_TOP_Z = 4.5;
   const ROBOT_CORNER_SEGMENTS = 8;
@@ -60,14 +64,15 @@
   const EPSILON = 1e-7;
 
   const MOUNTS = Object.freeze({
-    front: Object.freeze({ id: "front", label: "Front", offsetX: ROBOT_HALF_SIDE, offsetY: 0, yaw: 0 }),
-    rear: Object.freeze({ id: "rear", label: "Rear", offsetX: -ROBOT_HALF_SIDE, offsetY: 0, yaw: Math.PI }),
-    left: Object.freeze({ id: "left", label: "Left", offsetX: 0, offsetY: ROBOT_HALF_SIDE, yaw: Math.PI / 2 }),
-    right: Object.freeze({ id: "right", label: "Right", offsetX: 0, offsetY: -ROBOT_HALF_SIDE, yaw: -Math.PI / 2 })
+    front: Object.freeze({ id: "front", label: "Front", yaw: 0 }),
+    rear: Object.freeze({ id: "rear", label: "Rear", yaw: Math.PI }),
+    left: Object.freeze({ id: "left", label: "Left", yaw: Math.PI / 2 }),
+    right: Object.freeze({ id: "right", label: "Right", yaw: -Math.PI / 2 })
   });
 
   const HEADS = Object.freeze({
     forward: Object.freeze({ id: "forward", label: "Look Forward", pitchDegrees: 0 }),
+    down45: Object.freeze({ id: "down45", label: "Look Down 45°", pitchDegrees: CAMERA_DOWN_45_PITCH_DEGREES }),
     down: Object.freeze({ id: "down", label: "Look Down", pitchDegrees: CAMERA_DOWN_PITCH_DEGREES })
   });
 
@@ -150,6 +155,25 @@
       y: finiteNumber(source && source.y, 0),
       heading: normalizeAngle(source && source.heading)
     };
+  }
+
+  function normalizeChassis(candidate) {
+    const source = candidate && candidate.chassis ? candidate.chassis : candidate || {};
+    const unclampedLength = finiteNumber(source.length, ROBOT_DEFAULT_LENGTH);
+    const unclampedWidth = finiteNumber(source.width, ROBOT_DEFAULT_WIDTH);
+    const steppedLength = Math.round(unclampedLength / ROBOT_DIMENSION_STEP) * ROBOT_DIMENSION_STEP;
+    const steppedWidth = Math.round(unclampedWidth / ROBOT_DIMENSION_STEP) * ROBOT_DIMENSION_STEP;
+
+    return {
+      length: clamp(steppedLength, ROBOT_DIMENSION_MIN, ROBOT_DIMENSION_MAX),
+      width: clamp(steppedWidth, ROBOT_DIMENSION_MIN, ROBOT_DIMENSION_MAX)
+    };
+  }
+
+  function resolveChassis(stateOrPose, options) {
+    if (options && options.chassis) return normalizeChassis(options.chassis);
+    if (stateOrPose && stateOrPose.chassis) return normalizeChassis(stateOrPose.chassis);
+    return normalizeChassis();
   }
 
   function normalizeCameraSettings(camera) {
@@ -325,20 +349,26 @@
 
   function createState(options) {
     const source = options || {};
+    const chassis = normalizeChassis(source.chassis);
     const startPoseId = Object.prototype.hasOwnProperty.call(START_POSE_BY_ID, source.startPoseId)
       ? source.startPoseId
       : DEFAULT_START_POSE_ID;
     const selectedStart = START_POSE_BY_ID[startPoseId];
     const requestedRobot = source.robot ? normalizePose(source.robot) : null;
-    const robot = requestedRobot && isPoseValid(requestedRobot)
+    const selectedRobot = normalizePose(selectedStart);
+    if (!isPoseValid({ robot: selectedRobot, chassis })) {
+      throw new Error(`Start pose ${startPoseId} does not fit the ${chassis.length} × ${chassis.width}-inch chassis.`);
+    }
+    const robot = requestedRobot && isPoseValid({ robot: requestedRobot, chassis })
       ? requestedRobot
-      : normalizePose(selectedStart);
+      : selectedRobot;
     const cameraSource = source.camera || source;
 
     return {
       sceneId: SCENE_ID,
       startPoseId,
       robot,
+      chassis,
       camera: normalizeCameraSettings(cameraSource)
     };
   }
@@ -357,23 +387,33 @@
       ? requestedId
       : DEFAULT_START_POSE_ID;
     const selected = START_POSE_BY_ID[validId];
+    const chassis = normalizeChassis(current.chassis);
+    const robot = normalizePose(selected);
+
+    if (!isPoseValid({ robot, chassis })) {
+      throw new Error(`Start pose ${validId} does not fit the ${chassis.length} × ${chassis.width}-inch chassis.`);
+    }
 
     return {
       ...current,
       sceneId: SCENE_ID,
       startPoseId: validId,
-      robot: normalizePose(selected),
+      robot,
+      chassis,
       camera: normalizeCameraSettings(current.camera)
     };
   }
 
-  function roundedSquareLocalPoints() {
-    const arcCenter = ROBOT_HALF_SIDE - ROBOT_CORNER_RADIUS;
+  function roundedRectangleLocalPoints(chassis) {
+    const halfLength = chassis.length / 2;
+    const halfWidth = chassis.width / 2;
+    const arcCenterX = halfLength - ROBOT_CORNER_RADIUS;
+    const arcCenterY = halfWidth - ROBOT_CORNER_RADIUS;
     const centers = [
-      { x: arcCenter, y: arcCenter, startAngle: 0 },
-      { x: -arcCenter, y: arcCenter, startAngle: Math.PI / 2 },
-      { x: -arcCenter, y: -arcCenter, startAngle: Math.PI },
-      { x: arcCenter, y: -arcCenter, startAngle: Math.PI * 1.5 }
+      { x: arcCenterX, y: arcCenterY, startAngle: 0 },
+      { x: -arcCenterX, y: arcCenterY, startAngle: Math.PI / 2 },
+      { x: -arcCenterX, y: -arcCenterY, startAngle: Math.PI },
+      { x: arcCenterX, y: -arcCenterY, startAngle: Math.PI * 1.5 }
     ];
     const points = [];
 
@@ -390,14 +430,29 @@
     return points;
   }
 
-  const ROBOT_LOCAL_FOOTPRINT = Object.freeze(roundedSquareLocalPoints().map((point) => Object.freeze(point)));
+  const ROBOT_LOCAL_FOOTPRINTS = new Map();
 
-  function getRobotFootprint(pose) {
-    const robot = normalizePose(pose);
+  function getRobotLocalFootprint(chassis) {
+    const normalized = normalizeChassis(chassis);
+    const key = `${normalized.length}:${normalized.width}`;
+    if (!ROBOT_LOCAL_FOOTPRINTS.has(key)) {
+      ROBOT_LOCAL_FOOTPRINTS.set(
+        key,
+        Object.freeze(roundedRectangleLocalPoints(normalized).map((point) => Object.freeze(point)))
+      );
+    }
+    return ROBOT_LOCAL_FOOTPRINTS.get(key);
+  }
+
+  function getRobotFootprint(stateOrPose, chassisSettings) {
+    const robot = normalizePose(stateOrPose);
+    const chassis = chassisSettings
+      ? normalizeChassis(chassisSettings)
+      : resolveChassis(stateOrPose);
     const cosine = Math.cos(robot.heading);
     const sine = Math.sin(robot.heading);
 
-    return ROBOT_LOCAL_FOOTPRINT.map((point) => ({
+    return getRobotLocalFootprint(chassis).map((point) => ({
       x: robot.x + point.x * cosine - point.y * sine,
       y: robot.y + point.x * sine + point.y * cosine
     }));
@@ -527,13 +582,15 @@
     return boundary;
   }
 
-  function collisionForPose(pose, options) {
-    const robot = normalizePose(pose);
-    if (![robot.x, robot.y, robot.heading].every(Number.isFinite)) {
+  function collisionForPose(stateOrPose, options) {
+    const source = stateOrPose && stateOrPose.robot ? stateOrPose.robot : stateOrPose;
+    if (!source || ![Number(source.x), Number(source.y), Number(source.heading)].every(Number.isFinite)) {
       return { kind: "invalid-pose" };
     }
+    const robot = normalizePose(stateOrPose);
+    const chassis = resolveChassis(stateOrPose, options);
 
-    const footprint = getRobotFootprint(robot);
+    const footprint = getRobotFootprint(robot, chassis);
     const boundary = resolveBoundary(options);
     const outsideBoundary = footprint.some((point) =>
       point.x < boundary.minimumX - EPSILON ||
@@ -558,11 +615,11 @@
     return null;
   }
 
-  function isPoseValid(pose, options) {
-    if (!pose) return false;
-    const source = pose && pose.robot ? pose.robot : pose;
+  function isPoseValid(stateOrPose, options) {
+    if (!stateOrPose) return false;
+    const source = stateOrPose && stateOrPose.robot ? stateOrPose.robot : stateOrPose;
     if (![Number(source.x), Number(source.y), Number(source.heading)].every(Number.isFinite)) return false;
-    return collisionForPose(source, options) === null;
+    return collisionForPose(stateOrPose, options) === null;
   }
 
   function normalizedDriveOutput(value) {
@@ -589,6 +646,7 @@
 
   function integrateRobot(poseOrState, drivetrain, deltaSeconds, options) {
     const initialPose = normalizePose(poseOrState);
+    const chassis = resolveChassis(poseOrState, options);
     const dt = clamp(finiteNumber(deltaSeconds, 0), 0, MAX_DELTA_SECONDS);
     const leftSpeed = normalizedDriveOutput(drivetrain && drivetrain.leftOutput) * MAX_LINEAR_SPEED;
     const rightSpeed = normalizedDriveOutput(drivetrain && drivetrain.rightOutput) * MAX_LINEAR_SPEED;
@@ -610,7 +668,7 @@
 
     for (let index = 0; index < substeps; index += 1) {
       const candidate = advancePose(pose, linearSpeed, angularSpeed, dt / substeps);
-      collision = collisionForPose(candidate, options);
+      collision = collisionForPose({ robot: candidate, chassis }, options);
       if (collision) break;
       pose = candidate;
       completedSubsteps += 1;
@@ -629,13 +687,20 @@
   function getCameraPose(stateOrPose, cameraSettings) {
     const state = stateOrPose && stateOrPose.robot ? stateOrPose : null;
     const robot = normalizePose(state || stateOrPose);
+    const chassis = resolveChassis(state || stateOrPose);
     const camera = normalizeCameraSettings(cameraSettings || (state && state.camera));
     const mount = MOUNTS[camera.mount];
+    const mountOffset = {
+      front: { x: chassis.length / 2, y: 0 },
+      rear: { x: -chassis.length / 2, y: 0 },
+      left: { x: 0, y: chassis.width / 2 },
+      right: { x: 0, y: -chassis.width / 2 }
+    }[camera.mount];
     const cosine = Math.cos(robot.heading);
     const sine = Math.sin(robot.heading);
     const position = {
-      x: robot.x + mount.offsetX * cosine - mount.offsetY * sine,
-      y: robot.y + mount.offsetX * sine + mount.offsetY * cosine,
+      x: robot.x + mountOffset.x * cosine - mountOffset.y * sine,
+      y: robot.y + mountOffset.x * sine + mountOffset.y * cosine,
       z: camera.height
     };
     const yaw = normalizeAngle(robot.heading + mount.yaw);
@@ -810,7 +875,7 @@
     );
   }
 
-  function lineOfSightBlocked(cameraPosition, target, candidateMarker, robotPose) {
+  function lineOfSightBlocked(cameraPosition, target, candidateMarker, robotState) {
     for (let index = 0; index < TABLES.length; index += 1) {
       const table = TABLES[index];
       if (table.id === candidateMarker.ownerId) continue;
@@ -823,11 +888,11 @@
       if (segmentIntersectsWall(cameraPosition, target, candidateWall)) return true;
     }
 
-    const footprint = getRobotFootprint(robotPose);
+    const footprint = getRobotFootprint(robotState);
     return segmentIntersectsConvexPrism(cameraPosition, target, footprint, 0, ROBOT_TOP_Z);
   }
 
-  function markerOccluded(candidateMarker, camera, robotPose) {
+  function markerOccluded(candidateMarker, camera, robotState) {
     const sampleCoordinates = [-1, -0.5, 0, 0.5, 1];
     for (let verticalIndex = 0; verticalIndex < sampleCoordinates.length; verticalIndex += 1) {
       for (let horizontalIndex = 0; horizontalIndex < sampleCoordinates.length; horizontalIndex += 1) {
@@ -836,13 +901,13 @@
           sampleCoordinates[horizontalIndex],
           sampleCoordinates[verticalIndex]
         );
-        if (lineOfSightBlocked(camera.position, target, candidateMarker, robotPose)) return true;
+        if (lineOfSightBlocked(camera.position, target, candidateMarker, robotState)) return true;
       }
     }
     return false;
   }
 
-  function projectMarker(candidateMarker, camera, robotPose) {
+  function projectMarker(candidateMarker, camera, robotState) {
     const cameraFromMarker = subtract(camera.position, candidateMarker.center);
     const frontFacing = dot(candidateMarker.normal, cameraFromMarker) > EPSILON;
     const corners = candidateMarker.corners.map((corner) => projectPoint(corner, camera));
@@ -857,7 +922,7 @@
     const sufficientlyLarge = minimumProjectedEdge >= MIN_PROJECTED_PATTERN_PIXELS &&
       projectedArea >= MIN_PROJECTED_PATTERN_PIXELS ** 2;
     const occluded = frontFacing && allInFront && fullyInFrame && sufficientlyLarge
-      ? markerOccluded(candidateMarker, camera, robotPose)
+      ? markerOccluded(candidateMarker, camera, robotState)
       : false;
     const rejectionReasons = [];
 
@@ -888,14 +953,16 @@
   function projectScene(stateOrPose, cameraSettings) {
     const state = stateOrPose && stateOrPose.robot ? stateOrPose : null;
     const robot = normalizePose(state || stateOrPose);
+    const chassis = resolveChassis(state || stateOrPose);
+    const robotState = { robot, chassis };
     const camera = getCameraPose(state || robot, cameraSettings || (state && state.camera));
-    const markers = FIDUCIALS.map((candidateMarker) => projectMarker(candidateMarker, camera, robot));
+    const markers = FIDUCIALS.map((candidateMarker) => projectMarker(candidateMarker, camera, robotState));
     const detections = markers
       .filter((candidate) => candidate.eligible)
       .sort((a, b) => a.id - b.id)
       .map(detectionFromProjection);
 
-    return deepFreeze({ camera, robot, markers, detections });
+    return deepFreeze({ camera, robot, chassis, markers, detections });
   }
 
   function detectionFromProjection(projection) {
@@ -965,6 +1032,7 @@
   function layoutWorldView(stateOrPose, width, height) {
     const state = stateOrPose && stateOrPose.robot ? stateOrPose : createState({ robot: stateOrPose });
     const robot = normalizePose(state);
+    const chassis = resolveChassis(state);
     const camera = getCameraPose(state);
     const mapWidth = Math.max(finiteNumber(width, WORLD_VIEW_WIDTH), WORLD_VIEW_PADDING * 2 + 1);
     const mapHeight = Math.max(finiteNumber(height, WORLD_VIEW_HEIGHT), WORLD_VIEW_PADDING * 2 + 1);
@@ -1036,10 +1104,12 @@
       robot: {
         x: robotPoint.x,
         y: robotPoint.y,
+        length: chassis.length,
+        width: chassis.width,
         heading: robot.heading,
         headingDegrees: (robot.heading * 180 / Math.PI + 360) % 360,
         rotationDegrees: -robot.heading * 180 / Math.PI,
-        footprint: getRobotFootprint(robot).map(toScreen)
+        footprint: getRobotFootprint({ robot, chassis }).map(toScreen)
       },
       camera: {
         x: cameraPoint.x,
@@ -1070,6 +1140,7 @@
     cameraMaxHeight: CAMERA_MAX_HEIGHT,
     cameraDefaultHeight: CAMERA_DEFAULT_HEIGHT,
     cameraHeightStep: CAMERA_HEIGHT_STEP,
+    cameraDown45PitchDegrees: CAMERA_DOWN_45_PITCH_DEGREES,
     cameraDownPitchDegrees: CAMERA_DOWN_PITCH_DEGREES,
     minimumProjectedPatternPixels: MIN_PROJECTED_PATTERN_PIXELS,
     mounts: MOUNTS,
@@ -1083,7 +1154,12 @@
     wallInnerHalfSpan: WALL_INNER_HALF_SPAN,
     wallLongHalfLength: WALL_LONG_HALF_LENGTH,
     wallShortHalfLength: WALL_SHORT_HALF_LENGTH,
-    robotSide: ROBOT_SIDE,
+    robotDefaultLength: ROBOT_DEFAULT_LENGTH,
+    robotDefaultWidth: ROBOT_DEFAULT_WIDTH,
+    robotDimensionMin: ROBOT_DIMENSION_MIN,
+    robotDimensionMax: ROBOT_DIMENSION_MAX,
+    robotDimensionStep: ROBOT_DIMENSION_STEP,
+    robotSide: ROBOT_DEFAULT_LENGTH,
     robotCornerRadius: ROBOT_CORNER_RADIUS,
     robotTopZ: ROBOT_TOP_Z,
     maxLinearSpeed: MAX_LINEAR_SPEED,
@@ -1112,8 +1188,10 @@
     createState,
     applyStartPose,
     normalizePose,
+    normalizeChassis,
     normalizeCameraSettings,
     getRobotFootprint,
+    collisionForPose,
     isPoseValid,
     integrateRobot,
     getCameraPose,

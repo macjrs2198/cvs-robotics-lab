@@ -324,10 +324,29 @@ function createControllerHarness(existingStorageValues) {
   const controllerSource = fs.readFileSync(path.join(aiVisionRoot, "dining-room-controller.js"), "utf8");
   const layoutSource = fs.readFileSync(path.join(aiVisionRoot, "layout.js"), "utf8");
 
+  function elementTag(tagName, id) {
+    const match = indexSource.match(new RegExp(`<${tagName}\\b[^>]*\\bid="${id}"[^>]*>`, "i"));
+    assert.ok(match, `expected ${tagName}#${id}`);
+    return match[0];
+  }
+
+  function attribute(tag, name) {
+    const match = tag.match(new RegExp(`\\b${name}="([^"]*)"`, "i"));
+    return match && match[1];
+  }
+
+  function localAssetVersion(assetName) {
+    const escapedName = assetName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const matches = Array.from(indexSource.matchAll(new RegExp(`(?:href|src)="\\./${escapedName}\\?v=([0-9]+\\.[0-9]+)"`, "g")));
+    assert.equal(matches.length, 1, `${assetName} must have exactly one numeric cache-busted reference`);
+    return matches[0][1];
+  }
+
   assert.equal((indexSource.match(/role="separator"/g) || []).length, 1);
   assert.match(indexSource, /id="world-stage"/);
   assert.match(stylesSource, /--divider-size:\s*24px/);
   assert.match(stylesSource, /\.camera-view\s*\{[^}]*box-sizing:\s*content-box;[^}]*width:\s*min\(320px,/s);
+  assert.match(stylesSource, /\.camera-view\s*\{[^}]*max-width:\s*320px;[^}]*aspect-ratio:\s*4\s*\/\s*3;/s);
   assert.match(stylesSource, /@media \(max-width: 1180px\)[\s\S]*?\.layout-divider\s*\{\s*display:\s*none;/);
   assert.match(controllerSource, /layoutWorldView\(ballWorld, worldDisplayWidth, worldDisplayHeight\)/);
   assert.match(controllerSource, /layoutWorldView\(diningState, worldDisplayWidth, worldDisplayHeight\)/);
@@ -342,7 +361,53 @@ function createControllerHarness(existingStorageValues) {
   assert.equal((clearProgramSource.match(/localStorage\.removeItem\(STORAGE_KEY\)/g) || []).length, 1);
   assert.equal(clearProgramSource.includes(layout.STORAGE_KEY), false);
   assert.notEqual(layout.STORAGE_KEY, "vex-ai-vision-simulator-program-v1");
+
+  assert.match(indexSource, /<span>Length (?:&mdash;|—) front\/back<\/span>/);
+  assert.match(indexSource, /<span>Width (?:&mdash;|—) left\/right<\/span>/);
+  ["chassis-length-input", "chassis-width-input"].forEach((id) => {
+    const input = elementTag("input", id);
+    assert.equal(attribute(input, "type"), "number");
+    assert.equal(attribute(input, "min"), "6");
+    assert.equal(attribute(input, "max"), "36");
+    assert.equal(attribute(input, "step"), "0.5");
+    assert.equal(attribute(input, "value"), "18");
+  });
+
+  const headGroup = indexSource.match(/<div class="head-buttons"[^>]*>([\s\S]*?)<\/div>/);
+  assert.ok(headGroup, "camera head button group must exist");
+  const headButtons = Array.from(headGroup[1].matchAll(/<button\b([^>]*)>([\s\S]*?)<\/button>/g), (match) => ({
+    id: attribute(match[1], "id"),
+    pressed: attribute(match[1], "aria-pressed"),
+    label: match[2].replace(/&deg;/g, "°").replace(/\s+/g, " ").trim(),
+  }));
+  assert.deepEqual(headButtons, [
+    { id: "look-forward-button", pressed: "true", label: "Forward" },
+    { id: "look-down-45-button", pressed: "false", label: "Down 45°" },
+    { id: "look-down-button", pressed: "false", label: "Down 60°" },
+  ]);
+
+  const cameraCanvas = elementTag("canvas", "dining-camera-canvas");
+  assert.equal(attribute(cameraCanvas, "width"), "320");
+  assert.equal(attribute(cameraCanvas, "height"), "240");
+
+  const originalAssetVersions = {
+    "styles.css": "4.0",
+    "help-content.js": "3.0",
+    "dining-room-model.js": "1.1",
+    "dining-room-controller.js": "2.0",
+    "blocks.js": "3.0",
+    "app.js": "4.1",
+  };
+  Object.entries(originalAssetVersions).forEach(([assetName, priorVersion]) => {
+    assert.notEqual(
+      localAssetVersion(assetName),
+      priorVersion,
+      `${assetName} must be cache-busted for this release`,
+    );
+  });
+  localAssetVersion("drivetrain.js");
+
   ["VisionSimulator", "takeSnapshot", "resetWorld", "resetTarget", "setTargetPosition", "Drivetrain", "cvsProgramControl"]
     .forEach((forbidden) => assert.equal(layoutSource.includes(forbidden), false, `${forbidden} must stay out of layout.js`));
-  console.log("PASS: source boundaries keep one divider and presentation-only resize logic isolated from simulation state");
+  console.log("PASS: setup labels, dimensions, three head controls, camera cap, cache busts, and source boundaries remain exact");
 }

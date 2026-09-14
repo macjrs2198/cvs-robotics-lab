@@ -51,9 +51,12 @@
   let worldMapMotionElement = null;
   let sceneSelectElement = null;
   let startPoseSelectElement = null;
+  let chassisLengthInputElement = null;
+  let chassisWidthInputElement = null;
   let cameraMountSelectElement = null;
   let cameraHeightInputElement = null;
   let lookForwardButton = null;
+  let lookDown45Button = null;
   let lookDownButton = null;
   let setupStatusElement = null;
   let cameraModeHintElement = null;
@@ -112,6 +115,38 @@
       throw new Error(`Lens height must use ${step}-inch increments.`);
     }
 
+    const head = camera.head === undefined ? diningModel.config.defaultHead : camera.head;
+    if (!VALID_HEADS.has(head)) {
+      throw new Error(`Unsupported camera head preset: ${String(head)}.`);
+    }
+
+    const chassis = candidate.chassis === undefined ? {} : candidate.chassis;
+    if (!chassis || typeof chassis !== "object" || Array.isArray(chassis)) {
+      throw new Error("Chassis settings must be an object.");
+    }
+
+    const length = chassis.length === undefined
+      ? diningModel.config.robotDefaultLength
+      : Number(chassis.length);
+    const width = chassis.width === undefined
+      ? diningModel.config.robotDefaultWidth
+      : Number(chassis.width);
+    const dimensionMinimum = diningModel.config.robotDimensionMin;
+    const dimensionMaximum = diningModel.config.robotDimensionMax;
+    const dimensionStep = diningModel.config.robotDimensionStep;
+    [
+      ["Length", length],
+      ["Width", width],
+    ].forEach(([label, value]) => {
+      if (!Number.isFinite(value) || value < dimensionMinimum || value > dimensionMaximum) {
+        throw new Error(`${label} must be ${dimensionMinimum}\u2013${dimensionMaximum} inches.`);
+      }
+      const steppedValue = Math.round(value / dimensionStep) * dimensionStep;
+      if (Math.abs(value - steppedValue) > 0.000001) {
+        throw new Error(`${label} must use ${dimensionStep}-inch increments.`);
+      }
+    });
+
     const defaultStart = scene === DINING_SCENE_ID
       ? diningModel.config.defaultStartPoseId
       : BALL_START_POSE_ID;
@@ -123,10 +158,31 @@
       throw new Error(`Unsupported ball-sandbox start pose: ${String(startPose)}.`);
     }
 
+    const normalizedChassis = {
+      length: Math.round(length / dimensionStep) * dimensionStep,
+      width: Math.round(width / dimensionStep) * dimensionStep,
+    };
+    const diningStartPose = scene === DINING_SCENE_ID
+      ? startPose
+      : candidate.diningStartPose === undefined
+        ? diningModel.config.defaultStartPoseId
+        : candidate.diningStartPose;
+    if (!VALID_STARTS.has(diningStartPose)) {
+      throw new Error(`Unsupported Dining Room start pose: ${String(diningStartPose)}.`);
+    }
+    const selectedStart = diningModel.startPoses.find((pose) => pose.id === diningStartPose);
+    if (!diningModel.isPoseValid({ robot: selectedStart, chassis: normalizedChassis })) {
+      throw new Error(
+        `${selectedStart.label} does not fit a ${normalizedChassis.length} \u00d7 ${normalizedChassis.width} inch chassis. Choose another start or smaller dimensions.`,
+      );
+    }
+
     return {
       scene,
-      camera: { mount, height: steppedHeight },
-      startPose
+      camera: { mount, height: steppedHeight, head },
+      chassis: normalizedChassis,
+      startPose,
+      diningStartPose
     };
   }
 
@@ -134,7 +190,9 @@
     return {
       scene: settings.scene,
       camera: { ...settings.camera },
-      startPose: settings.startPose
+      chassis: { ...settings.chassis },
+      startPose: settings.startPose,
+      diningStartPose: settings.diningStartPose
     };
   }
 
@@ -147,15 +205,18 @@
         settings: {
           scene: nextSettings.scene,
           camera: { ...nextSettings.camera },
-          startPose: nextSettings.startPose
+          chassis: { ...nextSettings.chassis },
+          startPose: nextSettings.startPose,
+          diningStartPose: nextSettings.diningStartPose
         }
       }
     }));
   }
 
-  function makeDiningState(nextSettings, nextHead) {
+  function makeDiningState(nextSettings, nextHead = nextSettings.camera.head) {
     return diningModel.createState({
       startPoseId: nextSettings.startPose,
+      chassis: nextSettings.chassis,
       camera: {
         mount: nextSettings.camera.mount,
         height: nextSettings.camera.height,
@@ -167,8 +228,23 @@
   function applySettings(candidate, options) {
     const nextSettings = normalizeSettings(candidate);
     const applyOptions = options || {};
+    const dimensionsChanged = Boolean(
+      settings && (
+        settings.chassis.length !== nextSettings.chassis.length ||
+        settings.chassis.width !== nextSettings.chassis.width
+      )
+    );
+    if (
+      dimensionsChanged &&
+      window.cvsProgramControl &&
+      typeof window.cvsProgramControl.isStopped === "function" &&
+      !window.cvsProgramControl.isStopped()
+    ) {
+      throw new Error("Stop the program before changing chassis dimensions.");
+    }
     const preserveHead = Boolean(applyOptions.preserveHead) && settings && settings.scene === nextSettings.scene;
-    const nextHead = preserveHead ? headPreset : "forward";
+    const nextHead = preserveHead ? headPreset : nextSettings.camera.head;
+    nextSettings.camera.head = nextHead;
 
     if (applyOptions.notify !== false) dispatchSettingsChange(nextSettings);
 
@@ -255,6 +331,10 @@
       throw new Error(`Unsupported camera head preset: ${String(preset)}.`);
     }
     headPreset = preset;
+    settings = {
+      ...settings,
+      camera: { ...settings.camera, head: headPreset }
+    };
     if (diningState) {
       diningState = {
         ...diningState,
@@ -275,7 +355,7 @@
     previousFrameTime = null;
     motionBlocked = false;
     collisionDetail = null;
-    headPreset = "forward";
+    headPreset = settings.camera.head;
     if (settings.scene === DINING_SCENE_ID) {
       diningState = makeDiningState(settings, headPreset);
     } else {
@@ -298,6 +378,7 @@
         startPoseId: diningState.startPoseId,
         robot: { ...diningState.robot },
         camera: { ...diningState.camera },
+        chassis: { ...diningState.chassis },
         blocked: motionBlocked,
         collision: collisionDetail ? { ...collisionDetail } : null
       };
@@ -789,7 +870,7 @@
     context.fill();
     context.stroke();
 
-    const frontLength = 13 * layout.scale;
+    const frontLength = ((Number(layout.robot.length) || diningModel.config.robotDefaultLength) / 2 + 4) * layout.scale;
     context.strokeStyle = "#006f50";
     context.lineWidth = 2;
     context.beginPath();
@@ -818,7 +899,7 @@
 
     diningWorldCanvas.setAttribute(
       "aria-label",
-      `Dining Room debug World View. Robot heading ${Math.round(layout.robot.headingDegrees)} degrees; camera ${layout.camera.mount}, ${layout.camera.head}, ${layout.camera.height} inches. Motion ${motionBlocked ? "blocked" : "clear"}.`,
+      `Dining Room debug World View. Robot ${layout.robot.length} by ${layout.robot.width} inches; heading ${Math.round(layout.robot.headingDegrees)} degrees; camera ${layout.camera.mount}, ${layout.camera.head}, ${layout.camera.height} inches. Motion ${motionBlocked ? "blocked" : "clear"}.`,
     );
   }
 
@@ -941,15 +1022,22 @@
     sceneSelectElement.value = settings.scene;
     startPoseSelectElement.value = isDining ? settings.startPose : BALL_START_POSE_ID;
     startPoseSelectElement.disabled = !isDining;
+    chassisLengthInputElement.value = String(settings.chassis.length);
+    chassisWidthInputElement.value = String(settings.chassis.width);
+    chassisLengthInputElement.disabled = !isDining;
+    chassisWidthInputElement.disabled = !isDining;
     cameraMountSelectElement.value = settings.camera.mount;
     cameraHeightInputElement.value = String(settings.camera.height);
     cameraMountSelectElement.disabled = !isDining;
     cameraHeightInputElement.disabled = !isDining;
     lookForwardButton.disabled = !isDining;
+    lookDown45Button.disabled = !isDining;
     lookDownButton.disabled = !isDining;
     lookForwardButton.classList.toggle("is-active", headPreset === "forward");
+    lookDown45Button.classList.toggle("is-active", headPreset === "down45");
     lookDownButton.classList.toggle("is-active", headPreset === "down");
     lookForwardButton.setAttribute("aria-pressed", String(headPreset === "forward"));
+    lookDown45Button.setAttribute("aria-pressed", String(headPreset === "down45"));
     lookDownButton.setAttribute("aria-pressed", String(headPreset === "down"));
     cameraModeHintElement.textContent = isDining ? "Projected fiducials" : "Drag target";
     cameraHeadingElement.textContent = isDining ? "Dining Room camera" : "Live Camera";
@@ -983,6 +1071,7 @@
     if (partial.scene !== undefined) next.scene = partial.scene;
     if (partial.startPose !== undefined) next.startPose = partial.startPose;
     if (partial.camera) next.camera = { ...next.camera, ...partial.camera };
+    if (partial.chassis) next.chassis = { ...next.chassis, ...partial.chassis };
     try {
       return applySettings(next, { notify: true, preserveHead: Boolean(options && options.preserveHead) });
     } catch (error) {
@@ -996,7 +1085,7 @@
     const scene = sceneSelectElement.value;
     updateSettingsFromControls({
       scene,
-      startPose: scene === DINING_SCENE_ID ? diningModel.config.defaultStartPoseId : BALL_START_POSE_ID
+      startPose: scene === DINING_SCENE_ID ? settings.diningStartPose : BALL_START_POSE_ID
     });
   }
 
@@ -1010,6 +1099,15 @@
 
   function handleHeightChange() {
     updateSettingsFromControls({ camera: { height: Number(cameraHeightInputElement.value) } }, { preserveHead: true });
+  }
+
+  function handleChassisChange() {
+    updateSettingsFromControls({
+      chassis: {
+        length: Number(chassisLengthInputElement.value),
+        width: Number(chassisWidthInputElement.value)
+      }
+    }, { preserveHead: true });
   }
 
   function pointerToSensorUnits(event) {
@@ -1087,9 +1185,12 @@
     worldMapMotionElement = document.getElementById("world-map-motion");
     sceneSelectElement = document.getElementById("scene-select");
     startPoseSelectElement = document.getElementById("start-pose-select");
+    chassisLengthInputElement = document.getElementById("chassis-length-input");
+    chassisWidthInputElement = document.getElementById("chassis-width-input");
     cameraMountSelectElement = document.getElementById("camera-mount-select");
     cameraHeightInputElement = document.getElementById("camera-height-input");
     lookForwardButton = document.getElementById("look-forward-button");
+    lookDown45Button = document.getElementById("look-down-45-button");
     lookDownButton = document.getElementById("look-down-button");
     setupStatusElement = document.getElementById("setup-status");
     cameraModeHintElement = document.getElementById("camera-mode-hint");
@@ -1103,8 +1204,9 @@
       worldMapRobotLabelElement, worldMapTargetElement, worldMapTargetLabelElement,
       worldMapDistanceElement, worldMapBearingElement, worldMapHeadingElement,
       worldMapMotionElement, sceneSelectElement, startPoseSelectElement,
-      cameraMountSelectElement, cameraHeightInputElement, lookForwardButton,
-      lookDownButton, setupStatusElement, cameraModeHintElement, cameraHeadingElement,
+      chassisLengthInputElement, chassisWidthInputElement, cameraMountSelectElement,
+      cameraHeightInputElement, lookForwardButton, lookDown45Button, lookDownButton,
+      setupStatusElement, cameraModeHintElement, cameraHeadingElement,
       worldHeadingElement
     ];
     if (required.some((element) => !element)) {
@@ -1120,9 +1222,12 @@
     targetElement.addEventListener("lostpointercapture", finishDrag);
     sceneSelectElement.addEventListener("change", handleSceneChange);
     startPoseSelectElement.addEventListener("change", handleStartPoseChange);
+    chassisLengthInputElement.addEventListener("change", handleChassisChange);
+    chassisWidthInputElement.addEventListener("change", handleChassisChange);
     cameraMountSelectElement.addEventListener("change", handleMountChange);
     cameraHeightInputElement.addEventListener("change", handleHeightChange);
     lookForwardButton.addEventListener("click", () => setHeadPreset("forward"));
+    lookDown45Button.addEventListener("click", () => setHeadPreset("down45"));
     lookDownButton.addEventListener("click", () => setHeadPreset("down"));
     if ("ResizeObserver" in window) {
       worldResizeObserver = new ResizeObserver(scheduleWorldSurfaceResize);

@@ -5,7 +5,7 @@
   const PROGRAM_FORMAT = "cvs-robotics-program";
   const PROGRAM_FORMAT_VERSION = 1;
   const APP_ID = "cvs-ai-vision";
-  const APP_VERSION = "3.0";
+  const APP_VERSION = "4.0";
   const APP_DISPLAY_NAME = "CVS AI Vision";
   const APP_DISPLAY_NAMES = Object.freeze({
     "cvs-ai-vision": APP_DISPLAY_NAME,
@@ -162,14 +162,26 @@
       reverse: "REVERSE",
       turnLeft: "TURN LEFT",
       turnRight: "TURN RIGHT",
+      individual: "MOTOR",
+      custom: "MOTOR",
       stopped: "STOPPED"
     };
 
     const leftOutput = Math.round(state.leftOutput);
     const rightOutput = Math.round(state.rightOutput);
-    elements.drivetrainStatusValue.textContent = `${labels[state.action]} \u2014 L ${leftOutput}% \u00b7 R ${rightOutput}%`;
-    elements.drivetrainStatusValue.title = `Drive speed ${state.driveSpeed}% \u00b7 Turn speed ${state.turnSpeed}%`;
-    elements.drivetrainStatus.classList.toggle("is-stopped", state.action === "stopped");
+    const actionLabel = labels[state.action] || "MOTOR";
+    const leftMotorVelocity = state.motors && state.motors.LeftDrive
+      ? Number(state.motors.LeftDrive.velocity)
+      : NaN;
+    const rightMotorVelocity = state.motors && state.motors.RightDrive
+      ? Number(state.motors.RightDrive.velocity)
+      : NaN;
+    const motorSettings = Number.isFinite(leftMotorVelocity) && Number.isFinite(rightMotorVelocity)
+      ? ` \u00b7 settings L ${leftMotorVelocity}% / R ${rightMotorVelocity}%`
+      : "";
+    elements.drivetrainStatusValue.textContent = `${actionLabel} \u2014 L ${leftOutput}% \u00b7 R ${rightOutput}%`;
+    elements.drivetrainStatusValue.title = `Commanded outputs \u00b7 L ${leftOutput}% \u00b7 R ${rightOutput}%${motorSettings}`;
+    elements.drivetrainStatus.classList.toggle("is-stopped", leftOutput === 0 && rightOutput === 0);
   }
 
   function clearOutput() {
@@ -429,6 +441,9 @@
         case "vision_look_down":
           window.VisionSimulator.setHeadPreset("down");
           break;
+        case "vision_look_down_45":
+          window.VisionSimulator.setHeadPreset("down45");
+          break;
         case "drive_forward":
           window.Drivetrain.forward();
           break;
@@ -450,6 +465,23 @@
         case "drive_set_turn_speed":
           window.Drivetrain.setTurnSpeed(block.getFieldValue("SPEED"));
           break;
+        case "motor_spin":
+          window.Drivetrain.spinMotor(
+            block.getFieldValue("DEVICE"),
+            block.getFieldValue("DIRECTION"),
+          );
+          break;
+        case "motor_stop":
+          window.Drivetrain.stopMotor(block.getFieldValue("DEVICE"));
+          break;
+        case "motor_set_velocity": {
+          const velocity = Number(evaluateValue(inputBlock(block, "VELOCITY")));
+          if (!Number.isFinite(velocity)) {
+            throw new Error("Motor velocity must be a finite number.");
+          }
+          window.Drivetrain.setMotorVelocity(block.getFieldValue("DEVICE"), velocity);
+          break;
+        }
         case "drivetrain_forward":
           window.Drivetrain.command("forward", block.getFieldValue("SPEED"));
           break;

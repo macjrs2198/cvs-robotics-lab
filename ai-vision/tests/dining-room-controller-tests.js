@@ -8,6 +8,7 @@ const vm = require("node:vm");
 const aiVisionRoot = path.join(__dirname, "..");
 const events = [];
 let drivetrainStops = 0;
+let programStopped = true;
 const drivetrain = {
   driveSpeed: 50,
   turnSpeed: 30,
@@ -25,6 +26,14 @@ class FakeCustomEvent {
 
 const browserWindow = {
   drivetrain,
+  cvsProgramControl: {
+    isStopped() {
+      return programStopped;
+    },
+    isPaused() {
+      return false;
+    },
+  },
   dispatchEvent(event) {
     events.push(event);
   },
@@ -62,8 +71,10 @@ const simulator = browserWindow.VisionSimulator;
     JSON.parse(JSON.stringify(simulator.getSettings())),
     {
       scene: "ball",
-      camera: { mount: "front", height: 12 },
+      camera: { mount: "front", height: 12, head: "forward" },
+      chassis: { length: 18, width: 18 },
       startPose: "ball-default",
+      diningStartPose: "table-4-north",
     },
   );
   const target = simulator.takeSnapshot("TARGET");
@@ -85,14 +96,44 @@ const simulator = browserWindow.VisionSimulator;
     () => simulator.normalizeSettings({ scene: "byte-to-bite-dining-room", startPose: "inside-table" }),
     /Unsupported Dining Room start pose/,
   );
-  console.log("PASS: imported scene, height, and start-pose settings are validated before application");
+  assert.throws(
+    () => simulator.normalizeSettings({ scene: "byte-to-bite-dining-room", camera: { head: "down30" } }),
+    /Unsupported camera head preset/,
+  );
+  assert.throws(
+    () => simulator.normalizeSettings({ scene: "byte-to-bite-dining-room", chassis: { length: 5.5, width: 18 } }),
+    /Length must be 6.*36 inches/,
+  );
+  assert.throws(
+    () => simulator.normalizeSettings({ scene: "byte-to-bite-dining-room", chassis: { length: 18, width: 18.25 } }),
+    /Width must use 0.5-inch increments/,
+  );
+  assert.throws(
+    () => simulator.normalizeSettings({
+      scene: "byte-to-bite-dining-room",
+      startPose: "table-4-north",
+      chassis: { length: 36, width: 36 },
+    }),
+    /does not fit.*Choose another start or smaller dimensions/,
+  );
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(simulator.normalizeSettings({
+      scene: "byte-to-bite-dining-room",
+      chassis: { length: 18.0000005, width: 17.9999995 },
+      startPose: "table-4-north",
+    }).chassis)),
+    { length: 18, width: 18 },
+    "accepted floating-point tolerance must canonicalize to the model's exact half-inch dimensions",
+  );
+  console.log("PASS: imported scene, camera, chassis, and start-pose settings are validated together before application");
 }
 
 {
   const eventCount = events.length;
   simulator.applySettings({
     scene: "byte-to-bite-dining-room",
-    camera: { mount: "front", height: 12 },
+    camera: { mount: "front", height: 12, head: "forward" },
+    chassis: { length: 18, width: 18 },
     startPose: "table-4-north",
   });
   assert.equal(drivetrainStops, 1);
@@ -111,8 +152,10 @@ const simulator = browserWindow.VisionSimulator;
   entranceCases.forEach((expected) => {
     const savedSettings = {
       scene: "byte-to-bite-dining-room",
-      camera: { mount: "rear", height: 17.5 },
+      camera: { mount: "rear", height: 17.5, head: "forward" },
+      chassis: { length: 18, width: 18 },
       startPose: expected.id,
+      diningStartPose: expected.id,
     };
     assert.deepEqual(JSON.parse(JSON.stringify(simulator.applySettings(savedSettings))), savedSettings);
 
@@ -138,12 +181,16 @@ const simulator = browserWindow.VisionSimulator;
     simulator.resetWorld();
     const reset = simulator.getWorldState();
     assert.deepEqual(JSON.parse(JSON.stringify(reset.robot)), expected.robot);
-    assert.deepEqual(JSON.parse(JSON.stringify(simulator.getSettings())), savedSettings);
-    assert.deepEqual(JSON.parse(JSON.stringify(reset.camera)), { mount: "rear", height: 17.5, head: "forward" });
+    assert.deepEqual(JSON.parse(JSON.stringify(simulator.getSettings())), {
+      ...savedSettings,
+      camera: { ...savedSettings.camera, head: "down" },
+    });
+    assert.deepEqual(JSON.parse(JSON.stringify(reset.camera)), { mount: "rear", height: 17.5, head: "down" });
   });
   simulator.applySettings({
     scene: "byte-to-bite-dining-room",
-    camera: { mount: "front", height: 12 },
+    camera: { mount: "front", height: 12, head: "forward" },
+    chassis: { length: 18, width: 18 },
     startPose: "table-4-north",
   });
   console.log("PASS: entrance presets face inward through apply, forward travel, camera articulation, and reset");
@@ -153,12 +200,27 @@ const simulator = browserWindow.VisionSimulator;
   const before = simulator.getWorldState();
   drivetrain.leftOutput = 37;
   drivetrain.rightOutput = 24;
-  simulator.setHeadPreset("down");
-  const after = simulator.getWorldState();
-  assert.deepEqual(after.robot, before.robot);
-  assert.equal(drivetrain.leftOutput, 37);
-  assert.equal(drivetrain.rightOutput, 24);
-  assert.equal(after.camera.head, "down");
+  const settingsEventsBeforeHead = events.filter((event) => event.type === "visionsettingschange").length;
+  const stopsBeforeHead = drivetrainStops;
+  const directions = [];
+  [
+    ["forward", 0],
+    ["down45", 45],
+    ["down", 60],
+  ].forEach(([head, expectedPitch]) => {
+    simulator.setHeadPreset(head);
+    const after = simulator.getWorldState();
+    assert.deepEqual(after.robot, before.robot);
+    assert.equal(drivetrain.leftOutput, 37);
+    assert.equal(drivetrain.rightOutput, 24);
+    assert.equal(after.camera.head, head);
+    assert.equal(simulator.getSettings().camera.head, head);
+    assert.equal(simulator.getLiveProjection().camera.pitchDegrees, expectedPitch);
+    directions.push(JSON.stringify(simulator.getLiveProjection().camera.forward));
+  });
+  assert.equal(new Set(directions).size, 3);
+  assert.equal(drivetrainStops, stopsBeforeHead);
+  assert.equal(events.filter((event) => event.type === "visionsettingschange").length, settingsEventsBeforeHead);
 
   const captured = simulator.takeSnapshot("FIDUCIAL_IDS");
   assert.equal(captured.captured, true);
@@ -169,7 +231,7 @@ const simulator = browserWindow.VisionSimulator;
   assert.equal(captured.objects.every((object) => object.confidenceSupported === false), true);
   const detectedIds = Array.from(captured.objects, (object) => object.id);
   assert.deepEqual(detectedIds, [...detectedIds].sort((a, b) => a - b));
-  console.log("PASS: default 12-inch Down view captures real fiducials in VEX ID order without confidence claims");
+  console.log("PASS: all three head angles share the real projection without changing chassis, motors, or setup events");
 }
 
 {
@@ -223,19 +285,88 @@ const simulator = browserWindow.VisionSimulator;
   drivetrain.rightOutput = 40;
   const applied = simulator.applySettings({
     scene: "byte-to-bite-dining-room",
-    camera: { mount: "rear", height: 24 },
+    camera: { mount: "rear", height: 24, head: "down45" },
+    chassis: { length: 18, width: 18 },
     startPose: "center-lane-northwest",
+    diningStartPose: "center-lane-northwest",
   });
   assert.equal(drivetrain.leftOutput, 0);
   assert.equal(drivetrain.rightOutput, 0);
   assert.equal(simulator.hasCapturedSnapshot(), false);
   assert.deepEqual(JSON.parse(JSON.stringify(applied)), {
     scene: "byte-to-bite-dining-room",
-    camera: { mount: "rear", height: 24 },
+    camera: { mount: "rear", height: 24, head: "down45" },
+    chassis: { length: 18, width: 18 },
+    startPose: "center-lane-northwest",
+    diningStartPose: "center-lane-northwest",
+  });
+  assert.equal(Object.prototype.hasOwnProperty.call(applied, "motors"), false);
+  console.log("PASS: persistent settings include chassis/head but omit runtime motors/detections and setup changes clear transient state");
+}
+
+{
+  simulator.applySettings({
+    scene: "byte-to-bite-dining-room",
+    camera: { mount: "left", height: 14, head: "down45" },
+    chassis: { length: 18, width: 18 },
+    startPose: "top-opening-right",
+  });
+  simulator.takeSnapshot("FIDUCIAL_IDS");
+  const beforeSettings = JSON.stringify(simulator.getSettings());
+  const beforeWorld = JSON.stringify(simulator.getWorldState());
+  const beforeSnapshot = simulator.getSnapshot();
+  const stopsBefore = drivetrainStops;
+  const eventsBefore = events.length;
+  assert.throws(() => simulator.applySettings({
+    scene: "byte-to-bite-dining-room",
+    camera: { mount: "front", height: 12, head: "forward" },
+    chassis: { length: 36, width: 36 },
+    startPose: "table-4-north",
+  }), /does not fit/);
+  assert.equal(JSON.stringify(simulator.getSettings()), beforeSettings);
+  assert.equal(JSON.stringify(simulator.getWorldState()), beforeWorld);
+  assert.strictEqual(simulator.getSnapshot(), beforeSnapshot);
+  assert.equal(drivetrainStops, stopsBefore);
+  assert.equal(events.length, eventsBefore);
+
+  programStopped = false;
+  assert.throws(() => simulator.applySettings({
+    ...simulator.getSettings(),
+    chassis: { length: 12, width: 12 },
+  }), /Stop the program before changing chassis dimensions/);
+  programStopped = true;
+  assert.equal(JSON.stringify(simulator.getSettings()), beforeSettings);
+  assert.equal(JSON.stringify(simulator.getWorldState()), beforeWorld);
+  assert.strictEqual(simulator.getSnapshot(), beforeSnapshot);
+  console.log("PASS: invalid and running chassis changes are atomic and preserve setup, world, snapshot, and work");
+}
+
+{
+  simulator.applySettings({
+    scene: "byte-to-bite-dining-room",
+    camera: { mount: "right", height: 13.5, head: "down45" },
+    chassis: { length: 30, width: 12 },
     startPose: "center-lane-northwest",
   });
-  assert.equal(Object.prototype.hasOwnProperty.call(applied.camera, "head"), false);
-  console.log("PASS: persistent settings omit head/motors/detections and setup changes clear transient state");
+  const diningSetup = simulator.getSettings();
+  assert.equal(diningSetup.diningStartPose, "center-lane-northwest");
+
+  simulator.applySettings({
+    ...diningSetup,
+    scene: "ball",
+    startPose: "ball-default",
+  });
+  const ballSetup = simulator.getSettings();
+  assert.equal(ballSetup.diningStartPose, "center-lane-northwest");
+
+  simulator.applySettings({
+    ...ballSetup,
+    scene: "byte-to-bite-dining-room",
+    startPose: ballSetup.diningStartPose,
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(simulator.getWorldState().chassis)), { length: 30, width: 12 });
+  assert.equal(simulator.getWorldState().startPoseId, "center-lane-northwest");
+  console.log("PASS: scene toggles preserve a valid Dining start for a nondefault chassis");
 }
 
 {
@@ -243,6 +374,13 @@ const simulator = browserWindow.VisionSimulator;
   const projection = simulator.resetWorld();
   assert.ok(projection.detection);
   assert.equal(simulator.getSettings().scene, "ball");
+  assert.deepEqual(JSON.parse(JSON.stringify(simulator.getSettings())), {
+    scene: "ball",
+      camera: { mount: "front", height: 12, head: "forward" },
+      chassis: { length: 18, width: 18 },
+      startPose: "ball-default",
+      diningStartPose: "table-4-north",
+  });
   assert.equal(simulator.takeSnapshot().type, "target");
   console.log("PASS: old empty settings safely restore the unchanged ball sandbox");
 }

@@ -1,6 +1,6 @@
 # CVS AI Vision Simulator
 
-A small, browser-based educational simulator that lets students use Google Blockly to write programs against simulated, snapshot-based VEX V5 AI Vision Sensor data and issue basic simulated drivetrain commands. It includes the original draggable-ball sandbox and a source-verified **Byte to Bite — Dining Room** fiducial scene.
+A small, browser-based educational simulator that lets students use Google Blockly to write programs against simulated, snapshot-based VEX V5 AI Vision Sensor data and control a simulated drivetrain with high-level Drive commands or individual left/right motor commands. It includes the original draggable-ball sandbox and a source-verified **Byte to Bite — Dining Room** fiducial scene with an adjustable chassis.
 
 The simulator uses lightweight 2D physics plus analytical 3D camera projection to keep robot motion, live preview, detections, and a compact World View synchronized. It does not perform pixel recognition, connect to VEX hardware, or expose debug-world coordinates to student code.
 
@@ -31,18 +31,18 @@ No build command or configuration file is required.
 
 ## Program Storage
 
-- **Save / Load** stores the Blockly program and persistent scene/camera/start setup in this browser and device.
+- **Save / Load** stores the Blockly program and persistent scene, chassis dimensions, camera mount/height/head, and start setup in this browser and device.
 - **Export / Import** downloads or opens a portable `CVS-AI-Vision-Program.json` file with those settings.
 - The desktop programming/simulation split is remembered separately as a device-only view preference. It is never included in saved or exported student programs, and clearing a program does not reset it.
 
-Existing saved and portable projects continue to load without being rewritten. If a project reads an AI Vision reporter before taking a snapshot, it receives a compatibility message so the student can add snapshot capture inside the appropriate sensing loop.
+Existing saved and portable projects continue to load without being rewritten. Missing chassis dimensions default to 18 × 18 inches, missing head settings default to Forward, and the existing Look Down block remains the original 60° command. Existing high-level Drive programs retain their behavior. If a project reads an AI Vision reporter before taking a snapshot, it receives a compatibility message so the student can add snapshot capture inside the appropriate sensing loop.
 
 ## Snapshot sensing model
 
 The **Live Camera** preview updates continuously from the simulated world. Blockly does not read that live projection. **Take Snapshot** copies the currently eligible target or fiducial detections into a separate immutable **Last Snapshot** dataset, and every AI Vision reporter reads only that captured dataset.
 
 - A new Run or Reset begins with no captured detection.
-- Take Snapshot replaces the previous dataset; moving the robot or target does not change an existing snapshot.
+- Take Snapshot replaces the previous dataset; moving the robot, target, or camera head does not change an existing snapshot.
 - Tracking programs should repeat Take Snapshot and check Object Exists before reading object properties. Fiducial programs can read Object Count and select student-facing items 1, 2, and so on.
 - An empty snapshot returns `false` for Object Exists. Program-visible numeric position, size, and confidence fallbacks are `0`, and the internal unavailable ID is `-1`. The Last Snapshot panel displays unavailable properties as a dash rather than as meaningful measurements.
 - The ball sandbox retains its partial-target policy and approximate range. Dining Room fiducials are conservative: a pattern must face the camera, be entirely inside the image, be large enough, and be unobstructed by modeled geometry.
@@ -56,29 +56,37 @@ The Dining Room uses inches with the center table at the origin, +X to map-right
 - Nine 12 × 12 inch tables on a 36-inch grid, with 24-inch clear gaps and tabletop height 3.625 inches.
 - Wall inside faces at X/Y = ±66 inches and 18 inches high. The 84-inch top/bottom walls leave the four real 24-inch corner openings; the two-piece side walls span 139.25 inches.
 - Marker IDs and printed-top directions follow the supplied placement map. The 8.5-inch paper and 7.6388889-inch recognition pattern are modeled separately.
-- The fixed chassis is an 18 × 18 inch rounded square with 2-inch corner radius and a 4.5-inch platform top. Collision uses its complete oriented rounded footprint and bounded movement substeps; blocked physical motion does not alter student motor commands.
+- Chassis length (front/back) and width (left/right) are independently adjustable from 6–36 inches in 0.5-inch steps, with an 18 × 18 inch default. Dimensions remain attached to the robot as it rotates. The 2-inch corner radius and 4.5-inch platform top remain fixed; collision uses the complete oriented rounded footprint and bounded movement substeps, so blocked physical motion does not alter student motor commands.
 
-The setup selector offers only validated starting poses. The one camera is fixed at the midpoint of the selected Front/Rear/Left/Right body edge. Lens height is 5.5–24 inches (12 by default); Look Forward is horizontal and Look Down is a fixed 60-degree downward/outward pitch. Camera head movement never changes chassis pose, chassis-forward, or drivetrain output.
+Chassis dimension changes are allowed only while stopped and are applied only when the proposed dimensions and selected starting pose are collision-free; invalid changes leave the previous valid setup intact. Tables and walls remain solid. Chassis dimensions drive the visible and collision footprints and place the one camera at the midpoint of the selected Front/Rear/Left/Right body edge. Lens height is 5.5–24 inches (12 by default). The persistent head choices are Forward (0°), Down 45°, and Down 60°; the original Look Down block still selects 60°. Camera articulation changes the real projection and World View footprint without changing chassis pose, chassis-forward, motor commands, or Last Snapshot.
 
 Dining detections analytically project the actual supplied Circle21h7 patterns into the 320 × 240 image and use modeled 3D surfaces for front-face, image-cutoff, projected-size, and occlusion decisions. This approximates VEX-style sensor output; it is not hardware-validated decoding. Confidence is an AI-classification property and is unavailable for Dining Room tags. Tag angle is intentionally not exposed by this simulator.
 
 The apparent source discrepancy between 54 and 69.625 inches is resolved: 54 inches is the outer long-wall fiducial centerline datum, while 69.625 inches is each transformed wall-panel half length. The assembled long wall is 139.25 inches. Raw CAD/PDF sources are not deployed; only the required extracted marker PNGs and this concise provenance are included.
 
+## Drive and motor commands
+
+The existing Drive blocks continue to set both drivetrain outputs together. The Motors block group controls `LeftDrive` and `RightDrive` independently with spin forward/reverse, stop, and set velocity commands. Each motor starts stopped with a 50% velocity setting. Spin continues until another applicable command changes or stops that side; set velocity accepts 0–100%, updates a side that is already spinning, and does not start a stopped motor. A later individual command changes only its selected side, so the latest applicable command controls each output.
+
+Wait does not stop the motors, and Pause/Resume preserves the established freeze-and-continue behavior. Application STOP, Stop Program, RESET, normal completion, and runtime-error cancellation zero both outputs. The compact DRIVE status reports commanded left/right percentages, not measured motor-speed feedback.
+
 ## Current features
 
-- A touch-friendly Blockly workspace with event, control, logic, AI Vision, Drive, and output blocks
+- A touch-friendly Blockly workspace with event, control, logic, AI Vision, Drive, Motors, and output blocks
 - Original draggable target sandbox plus the fixed Byte to Bite Dining Room scene
-- One configurable four-side camera with rigid mount and 0°/60° head presets
+- Independently adjustable Dining Room chassis length and width with validated starting clearance
+- One configurable four-side camera with rigid mount and 0°/45°/60° head presets
 - Actual supplied fiducial artwork IDs 0–20 projected from 3D marker geometry
-- A compact top-down, debug-only World View showing the shared robot position, heading, target, and 60-degree camera field of view
+- A compact top-down, debug-only World View showing the shared robot position, heading, target, and 60-degree horizontal camera field of view
 - An expandable desktop World View beside a camera preview capped at its native 320 × 240 content size, with one mouse-, touch-, and keyboard-accessible layout divider
 - Explicit Take Snapshot sensing with immutable object lists, count, 1-based selection, identity, and image-space values
 - Full-footprint Dining Room wall/table collision with anti-tunneling substeps
 - Run, stop, and reset controls
 - A live program output console for the Print blocks
 - The same seven Drive blocks used by CVS Digital Feedback: forward, reverse, left, right, stop, drive speed, and turn speed
-- Separate internal left/right drive outputs with a compact live output display
-- Safety behavior that stops the drivetrain whenever program execution stops
+- Independent LeftDrive/RightDrive spin, stop, and velocity blocks using the same authoritative drivetrain outputs
+- A compact live display of commanded left/right output
+- Safety behavior that stops both drivetrain outputs whenever program execution stops
 - Local program save, load, and clear using `localStorage`
 - Portable JSON program export and import with app and format validation
 - Static files that run on GitHub Pages without a framework or build pipeline

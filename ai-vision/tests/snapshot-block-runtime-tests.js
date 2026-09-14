@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
+const diningModel = require("../dining-room-model.js");
 
 const aiVisionRoot = path.join(__dirname, "..");
 const appSource = fs.readFileSync(path.join(aiVisionRoot, "app.js"), "utf8");
@@ -39,7 +40,11 @@ Object.entries(reporterMappings).forEach(([blockType, sensorProperty]) => {
   "vision_set_object_item",
   "vision_is_fiducial_id",
   "vision_look_forward",
+  "vision_look_down_45",
   "vision_look_down",
+  "motor_spin",
+  "motor_stop",
+  "motor_set_velocity",
 ].forEach((blockType) => assert.match(blocksSource, new RegExp(`type: "${blockType}"`)));
 
 assert.match(blocksSource, /message0: "Take Snapshot of %1"/);
@@ -48,6 +53,15 @@ assert.match(blocksSource, /\["Target", "TARGET"\]/);
 assert.match(blocksSource, /\["Fiducial IDs", "FIDUCIAL_IDS"\]/);
 assert.match(blocksSource, /type: "vision_set_object_item"[\s\S]*?name: "ITEM", check: "Number"/);
 assert.match(blocksSource, /type: "vision_is_fiducial_id"[\s\S]*?name: "ID", check: "Number"/);
+assert.match(
+  blocksSource,
+  /type: "motor_set_velocity"[\s\S]*?type: "input_value", name: "VELOCITY", check: "Number"/,
+  "motor velocity must accept a connected numeric value or expression",
+);
+assert.match(blocksSource, /\["LeftDrive", "LeftDrive"\]/);
+assert.match(blocksSource, /\["RightDrive", "RightDrive"\]/);
+assert.match(blocksSource, /\["forward", "forward"\]/);
+assert.match(blocksSource, /\["reverse", "reverse"\]/);
 
 const packStart = blocksSource.indexOf('id: "vision-sensors"');
 const snapshotToolboxPosition = blocksSource.indexOf('type: "vision_take_snapshot"', packStart);
@@ -55,6 +69,25 @@ const firstReporterPosition = blocksSource.indexOf('type: "vision_exists"', pack
 assert.ok(packStart >= 0, "the existing vision-sensors pack must remain available");
 assert.ok(snapshotToolboxPosition > packStart, "Take Snapshot must be in the vision-sensors pack");
 assert.ok(snapshotToolboxPosition < firstReporterPosition, "Take Snapshot must be the pack's first block");
+
+const motorsPackStart = blocksSource.indexOf('id: "motors"');
+const nextPackStart = blocksSource.indexOf('\n    {\n      id: "', motorsPackStart + 1);
+const packsEnd = blocksSource.indexOf('\n  ];', motorsPackStart);
+const motorsPackEnd = nextPackStart >= 0 && nextPackStart < packsEnd ? nextPackStart : packsEnd;
+assert.ok(motorsPackStart >= 0 && motorsPackEnd > motorsPackStart, "a motors pack must exist");
+const motorsPackSource = blocksSource.slice(motorsPackStart, motorsPackEnd);
+assert.match(motorsPackSource, /defaultEnabled:\s*true/);
+assert.match(motorsPackSource, /name:\s*"Motors"/);
+assert.deepEqual(
+  Array.from(motorsPackSource.matchAll(/kind:\s*"block",\s*type:\s*"(motor_[^"]+)"/g), (match) => match[1]),
+  ["motor_spin", "motor_stop", "motor_set_velocity"],
+  "the default Motors pack must contain exactly the three requested motor commands",
+);
+assert.match(
+  motorsPackSource,
+  /type:\s*"motor_set_velocity"[\s\S]*?inputs:\s*\{[\s\S]*?VELOCITY:\s*\{[\s\S]*?shadow:\s*\{[\s\S]*?type:\s*"math_number"[\s\S]*?NUM:\s*50/,
+  "the velocity toolbox block must provide a replaceable 50% number shadow",
+);
 
 assert.match(appSource, /const signature = resolveSnapshotSignature\(block\);[\s\S]*?VisionSimulator\.takeSnapshot\(signature\);/);
 assert.equal(
@@ -64,7 +97,14 @@ assert.equal(
 );
 assert.match(appSource, /VisionSimulator\.setSnapshotObjectItem\(studentItem\)/);
 assert.match(appSource, /VisionSimulator\.setHeadPreset\("forward"\)/);
+assert.match(appSource, /VisionSimulator\.setHeadPreset\("down45"\)/);
 assert.match(appSource, /VisionSimulator\.setHeadPreset\("down"\)/);
+assert.equal(diningModel.config.heads.forward.pitchDegrees, 0);
+assert.equal(diningModel.config.heads.down45.pitchDegrees, 45);
+assert.equal(diningModel.config.heads.down.pitchDegrees, 60, "the original Look Down path must remain 60 degrees");
+assert.match(appSource, /Drivetrain\.spinMotor\(/);
+assert.match(appSource, /Drivetrain\.stopMotor\(/);
+assert.match(appSource, /Drivetrain\.setMotorVelocity\(/);
 assert.equal(
   (appSource.match(/VisionSimulator\.clearSnapshot\(\)/g) || []).length,
   1,
@@ -128,6 +168,48 @@ function makeRuntime() {
     };\n})();`,
   );
   const appliedSettings = [];
+  const cloneSettings = (value) => JSON.parse(JSON.stringify(value));
+  const normalizeSettingsContract = (candidate = {}) => {
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate) || candidate.invalid) {
+      throw new Error("invalid settings");
+    }
+    const scene = candidate.scene || "ball";
+    const camera = candidate.camera || {};
+    const chassis = candidate.chassis || {};
+    const head = camera.head === undefined ? "forward" : camera.head;
+    if (!["forward", "down45", "down"].includes(head)) throw new Error("invalid camera head");
+
+    const normalizeDimension = (value) => {
+      const numeric = value === undefined ? 18 : Number(value);
+      if (
+        !Number.isFinite(numeric) ||
+        numeric < 6 ||
+        numeric > 36 ||
+        Math.abs(numeric * 2 - Math.round(numeric * 2)) > 0.000001
+      ) {
+        throw new Error("invalid chassis dimension");
+      }
+      return numeric;
+    };
+
+    const startPose = candidate.startPose || (scene === "byte-to-bite-dining-room" ? "table-4-north" : "ball-default");
+    return {
+      scene,
+      camera: {
+        mount: camera.mount || "front",
+        height: camera.height === undefined ? 12 : Number(camera.height),
+        head,
+      },
+      chassis: {
+        length: normalizeDimension(chassis.length),
+        width: normalizeDimension(chassis.width),
+      },
+      startPose,
+      diningStartPose: scene === "byte-to-bite-dining-room"
+        ? startPose
+        : candidate.diningStartPose || "table-4-north",
+    };
+  };
   const context = {
     console,
     document: {
@@ -150,15 +232,15 @@ function makeRuntime() {
         confidence: 0,
       },
       VisionSimulator: {
-        settings: { scene: "ball", cameraMount: "front" },
-        getSettings() { return { ...this.settings }; },
+        settings: normalizeSettingsContract({}),
+        getSettings() { return cloneSettings(this.settings); },
         normalizeSettings(settings) {
-          if (settings.invalid) throw new Error("invalid settings");
-          return { scene: settings.scene || "ball", cameraMount: settings.cameraMount || "front" };
+          return normalizeSettingsContract(settings);
         },
         applySettings(settings) {
-          appliedSettings.push({ ...settings });
-          this.settings = { ...settings };
+          const normalized = normalizeSettingsContract(settings);
+          appliedSettings.push(cloneSettings(normalized));
+          this.settings = cloneSettings(normalized);
         },
       },
       addEventListener() {},
@@ -379,7 +461,37 @@ function testTransactionalSettings() {
   };
   runtime.setWorkspaceForTest(workspace);
 
-  const normalized = runtime.normalizeProgramSettings({ scene: "byte-to-bite-dining-room", cameraMount: "rear" });
+  const legacyNormalized = runtime.normalizeProgramSettings({
+    scene: "byte-to-bite-dining-room",
+    camera: { mount: "rear", height: 17.5 },
+    startPose: "table-4-north",
+  });
+  assert.deepEqual(legacyNormalized, {
+    scene: "byte-to-bite-dining-room",
+    camera: { mount: "rear", height: 17.5, head: "forward" },
+    chassis: { length: 18, width: 18 },
+    startPose: "table-4-north",
+    diningStartPose: "table-4-north",
+  }, "legacy settings must gain only the safe camera-head and chassis defaults");
+  assert.throws(
+    () => runtime.normalizeProgramSettings({ camera: { head: "down30" } }),
+    /invalid camera head/,
+  );
+  assert.throws(
+    () => runtime.normalizeProgramSettings({ chassis: { length: 5.5, width: 18 } }),
+    /invalid chassis dimension/,
+  );
+  assert.throws(
+    () => runtime.normalizeProgramSettings({ chassis: { length: 18.25, width: 18 } }),
+    /invalid chassis dimension/,
+  );
+
+  const normalized = runtime.normalizeProgramSettings({
+    scene: "byte-to-bite-dining-room",
+    camera: { mount: "rear", height: 17.5, head: "down45" },
+    chassis: { length: 12, width: 10 },
+    startPose: "table-4-north",
+  });
   runtime.replaceProgramTransactionally(
     { blocks: { blocks: [{ type: "vision_take_snapshot" }] } },
     normalized,
@@ -390,6 +502,8 @@ function testTransactionalSettings() {
     "load-vision_take_snapshot",
   ], "settings must apply before workspace mutation");
   assert.equal(workspace.state.blocks.blocks[0].fields.SIGNATURE, "FIDUCIAL_IDS");
+  assert.deepEqual(appliedSettings.at(-1), normalized);
+  assert.deepEqual(runtime.createProgramFile().settings, normalized, "new head and chassis setup must be exported with the workspace");
 
   order.length = 0;
   workspace.failNextLoad = true;
@@ -400,15 +514,37 @@ function testTransactionalSettings() {
     ),
     /workspace load failed/,
   );
-  assert.equal(appliedSettings.at(-1).scene, "byte-to-bite-dining-room", "failed loads restore prior settings");
+  assert.deepEqual(appliedSettings.at(-1), normalized, "failed loads restore the complete prior head and chassis settings");
   assert.equal(workspace.state.blocks.blocks[0].type, "vision_take_snapshot", "failed loads restore prior workspace");
+
+  const applicationsBeforeInvalid = appliedSettings.length;
+  const workspaceBeforeInvalid = structuredClone(workspace.state);
+  assert.throws(
+    () => runtime.replaceProgramTransactionally(
+      { blocks: { blocks: [{ type: "must-not-load" }] } },
+      runtime.normalizeProgramSettings({
+        scene: "byte-to-bite-dining-room",
+        camera: { head: "down45" },
+        chassis: { length: 37, width: 18 },
+      }),
+    ),
+    /invalid chassis dimension/,
+  );
+  assert.equal(appliedSettings.length, applicationsBeforeInvalid, "invalid settings must fail before application");
+  assert.deepEqual(workspace.state, workspaceBeforeInvalid, "invalid settings must not partially replace the workspace");
 
   order.length = 0;
   runtime.replaceProgramTransactionally(
     { blocks: { blocks: [{ type: "vision_take_snapshot" }] } },
     runtime.normalizeProgramSettings({}),
   );
-  assert.equal(appliedSettings.at(-1).scene, "ball", "raw legacy saves restore their original Ball scene");
+  assert.deepEqual(appliedSettings.at(-1), {
+    scene: "ball",
+    camera: { mount: "front", height: 12, head: "forward" },
+    chassis: { length: 18, width: 18 },
+    startPose: "ball-default",
+    diningStartPose: "table-4-north",
+  }, "raw legacy saves restore their original Ball scene with compatible defaults");
   assert.equal(
     workspace.state.blocks.blocks[0].fields.SIGNATURE,
     "TARGET",
@@ -422,6 +558,11 @@ async function testCommandDispatch() {
   context.window.VisionSimulator.takeSnapshot = (signature) => calls.push(["snapshot", signature]);
   context.window.VisionSimulator.setSnapshotObjectItem = (item) => calls.push(["item", item]);
   context.window.VisionSimulator.setHeadPreset = (preset) => calls.push(["head", preset]);
+  context.window.Drivetrain = {
+    spinMotor: (device, direction) => calls.push(["spin", device, direction]),
+    stopMotor: (device) => calls.push(["stop", device]),
+    setMotorVelocity: (device, velocity) => calls.push(["velocity", device, velocity]),
+  };
   runtime.setProgramControlForTest({
     isActive: () => true,
     waitWhilePaused: async () => true,
@@ -429,9 +570,28 @@ async function testCommandDispatch() {
 
   const lookForward = statementBlock("vision_look_forward");
   const lookDown = statementBlock("vision_look_down", { next: lookForward });
+  const lookDown45 = statementBlock("vision_look_down_45", { next: lookDown });
+  const stopMotor = statementBlock("motor_stop", {
+    fields: { DEVICE: "LeftDrive" },
+    next: lookDown45,
+  });
+  const spinMotor = statementBlock("motor_spin", {
+    fields: { DEVICE: "RightDrive", DIRECTION: "reverse" },
+    next: stopMotor,
+  });
+  const setMotorVelocity = statementBlock("motor_set_velocity", {
+    fields: { DEVICE: "LeftDrive" },
+    inputs: {
+      VELOCITY: statementBlock("math_arithmetic", {
+        fields: { OP: "ADD" },
+        inputs: { A: numberBlock(20), B: numberBlock(35) },
+      }),
+    },
+    next: spinMotor,
+  });
   const selectItem = statementBlock("vision_set_object_item", {
     inputs: { ITEM: numberBlock(2) },
-    next: lookDown,
+    next: setMotorVelocity,
   });
   const snapshot = statementBlock("vision_take_snapshot", {
     fields: { SIGNATURE: "FIDUCIAL_IDS" },
@@ -442,6 +602,10 @@ async function testCommandDispatch() {
   assert.deepEqual(calls, [
     ["snapshot", "FIDUCIAL_IDS"],
     ["item", 2],
+    ["velocity", "LeftDrive", 55],
+    ["spin", "RightDrive", "reverse"],
+    ["stop", "LeftDrive"],
+    ["head", "down45"],
     ["head", "down"],
     ["head", "forward"],
   ]);
@@ -668,9 +832,9 @@ async function main() {
     /savedState\?\.format === PROGRAM_FORMAT[\s\S]*?workspace: validateWorkspaceState\(savedState\)[\s\S]*?settings: normalizeProgramSettings\(\{\}\)/,
   );
 
-  console.log("PASS: VEX-style snapshot, item selection, count, fiducial identity, and camera-head blocks are wired");
+  console.log("PASS: VEX-style snapshot, three camera-head commands, and individual motor blocks are wired");
   console.log("PASS: legacy snapshots default by scene and raw saved workspaces remain loadable");
-  console.log("PASS: simulator settings validate and apply before workspace mutation with rollback");
+  console.log("PASS: camera-head and chassis settings validate, persist, and roll back transactionally");
   console.log("PASS: Blockly IF / ELSE IF / ELSE execution preserves nesting, waits, pause/resume, and Stop");
   console.log("PASS: Last Snapshot guidance, fallbacks, and portable format version 1 remain compatible");
 }

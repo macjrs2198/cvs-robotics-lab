@@ -189,11 +189,20 @@
     },
     {
       type: "vision_look_down",
-      message0: "Look Down",
+      message0: "Look Down 60\u00b0",
       previousStatement: null,
       nextStatement: null,
       colour: COLORS.vision,
-      tooltip: "Tilt the camera head downward and outward without changing the chassis or drive command.",
+      tooltip: "Tilt the camera head 60 degrees downward and outward without changing the chassis, drive command, or Last Snapshot.",
+      helpUrl: ""
+    },
+    {
+      type: "vision_look_down_45",
+      message0: "Look Down 45\u00b0",
+      previousStatement: null,
+      nextStatement: null,
+      colour: COLORS.vision,
+      tooltip: "Tilt the camera head 45 degrees downward and outward without changing the chassis, drive command, or Last Snapshot.",
       helpUrl: ""
     },
     {
@@ -342,6 +351,61 @@
       helpUrl: ""
     },
     {
+      type: "motor_spin",
+      message0: "spin %1 %2",
+      args0: [
+        {
+          type: "field_dropdown",
+          name: "DEVICE",
+          options: [["LeftDrive", "LeftDrive"], ["RightDrive", "RightDrive"]]
+        },
+        {
+          type: "field_dropdown",
+          name: "DIRECTION",
+          options: [["forward", "forward"], ["reverse", "reverse"]]
+        }
+      ],
+      previousStatement: null,
+      nextStatement: null,
+      colour: COLORS.drivetrain,
+      tooltip: "Start the selected drive motor in the chosen chassis-relative direction at its stored velocity.",
+      helpUrl: ""
+    },
+    {
+      type: "motor_stop",
+      message0: "stop %1",
+      args0: [
+        {
+          type: "field_dropdown",
+          name: "DEVICE",
+          options: [["LeftDrive", "LeftDrive"], ["RightDrive", "RightDrive"]]
+        }
+      ],
+      previousStatement: null,
+      nextStatement: null,
+      colour: COLORS.drivetrain,
+      tooltip: "Stop only the selected drive motor.",
+      helpUrl: ""
+    },
+    {
+      type: "motor_set_velocity",
+      message0: "set %1 velocity to %2 %%",
+      args0: [
+        {
+          type: "field_dropdown",
+          name: "DEVICE",
+          options: [["LeftDrive", "LeftDrive"], ["RightDrive", "RightDrive"]]
+        },
+        { type: "input_value", name: "VELOCITY", check: "Number" }
+      ],
+      inputsInline: true,
+      previousStatement: null,
+      nextStatement: null,
+      colour: COLORS.drivetrain,
+      tooltip: "Set the selected motor's stored velocity from 0 to 100 percent. A stopped motor stays stopped.",
+      helpUrl: ""
+    },
+    {
       type: "drivetrain_forward",
       message0: "drive forward %1 %%",
       args0: [
@@ -449,6 +513,7 @@
             }
           },
           { kind: "block", type: "vision_look_forward" },
+          { kind: "block", type: "vision_look_down_45" },
           { kind: "block", type: "vision_look_down" },
           { kind: "block", type: "vision_exists" },
           { kind: "block", type: "vision_object_count" },
@@ -490,6 +555,33 @@
           { kind: "block", type: "drive_stop" },
           { kind: "block", type: "drive_set_speed" },
           { kind: "block", type: "drive_set_turn_speed" }
+        ]
+      }
+    },
+    {
+      id: "motors",
+      label: "Motors",
+      description: "Control LeftDrive and RightDrive independently with spin, stop, and stored velocity commands.",
+      defaultEnabled: true,
+      category: {
+        kind: "category",
+        name: "Motors",
+        colour: COLORS.drivetrain,
+        contents: [
+          { kind: "block", type: "motor_spin" },
+          { kind: "block", type: "motor_stop" },
+          {
+            kind: "block",
+            type: "motor_set_velocity",
+            inputs: {
+              VELOCITY: {
+                shadow: {
+                  type: "math_number",
+                  fields: { NUM: 50 }
+                }
+              }
+            }
+          }
         ]
       }
     }

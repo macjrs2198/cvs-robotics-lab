@@ -1,0 +1,154 @@
+{
+  "format": "cvs-robotics-program",
+  "formatVersion": 1,
+  "app": "cvs-ai-vision",
+  "appVersion": "4.0",
+  "workspace": {
+    "blocks": {
+      "languageVersion": 0,
+      "blocks": [
+        {
+          "type": "event_when_started",
+          "id": "motor-demo-start",
+          "x": 36,
+          "y": 30,
+          "next": {
+            "block": {
+              "type": "drive_stop",
+              "id": "motor-demo-drive-stop",
+              "next": {
+                "block": {
+                  "type": "motor_set_velocity",
+                  "id": "motor-demo-left-velocity",
+                  "fields": {
+                    "DEVICE": "LeftDrive"
+                  },
+                  "inputs": {
+                    "VELOCITY": {
+                      "shadow": {
+                        "type": "math_number",
+                        "id": "motor-demo-left-number",
+                        "fields": {
+                          "NUM": 20
+                        }
+                      }
+                    }
+                  },
+                  "next": {
+                    "block": {
+                      "type": "motor_set_velocity",
+                      "id": "motor-demo-right-velocity",
+                      "fields": {
+                        "DEVICE": "RightDrive"
+                      },
+                      "inputs": {
+                        "VELOCITY": {
+                          "block": {
+                            "type": "math_arithmetic",
+                            "id": "motor-demo-right-expression",
+                            "fields": {
+                              "OP": "MULTIPLY"
+                            },
+                            "inputs": {
+                              "A": {
+                                "shadow": {
+                                  "type": "math_number",
+                                  "id": "motor-demo-expression-left",
+                                  "fields": {
+                                    "NUM": 4
+                                  }
+                                }
+                              },
+                              "B": {
+                                "shadow": {
+                                  "type": "math_number",
+                                  "id": "motor-demo-expression-right",
+                                  "fields": {
+                                    "NUM": 5
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "next": {
+                        "block": {
+                          "type": "motor_spin",
+                          "id": "motor-demo-left-spin",
+                          "fields": {
+                            "DEVICE": "LeftDrive",
+                            "DIRECTION": "reverse"
+                          },
+                          "next": {
+                            "block": {
+                              "type": "motor_spin",
+                              "id": "motor-demo-right-spin",
+                              "fields": {
+                                "DEVICE": "RightDrive",
+                                "DIRECTION": "forward"
+                              },
+                              "next": {
+                                "block": {
+                                  "type": "core_wait_seconds",
+                                  "id": "motor-demo-wait",
+                                  "inputs": {
+                                    "SECONDS": {
+                                      "shadow": {
+                                        "type": "math_number",
+                                        "id": "motor-demo-wait-number",
+                                        "fields": {
+                                          "NUM": 0.5
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "next": {
+                                    "block": {
+                                      "type": "motor_stop",
+                                      "id": "motor-demo-left-stop",
+                                      "fields": {
+                                        "DEVICE": "LeftDrive"
+                                      },
+                                      "next": {
+                                        "block": {
+                                          "type": "motor_stop",
+                                          "id": "motor-demo-right-stop",
+                                          "fields": {
+                                            "DEVICE": "RightDrive"
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "settings": {
+    "scene": "byte-to-bite-dining-room",
+    "camera": {
+      "mount": "right",
+      "height": 13.5,
+      "head": "down45"
+    },
+    "chassis": {
+      "length": 12,
+      "width": 10
+    },
+    "startPose": "center-lane-northwest",
+    "diningStartPose": "center-lane-northwest"
+  }
+}

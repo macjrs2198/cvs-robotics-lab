@@ -28,8 +28,8 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
-function stateAt(robot, camera) {
-  return {
+function stateAt(robot, camera, chassis) {
+  const state = {
     sceneId: model.SCENE_ID,
     startPoseId: model.config.defaultStartPoseId,
     robot: { ...robot },
@@ -39,6 +39,17 @@ function stateAt(robot, camera) {
       head: "forward",
       ...(camera || {})
     }
+  };
+  if (chassis) state.chassis = { ...chassis };
+  return state;
+}
+
+function boundsOf(points) {
+  return {
+    minimumX: Math.min(...points.map((point) => point.x)),
+    maximumX: Math.max(...points.map((point) => point.x)),
+    minimumY: Math.min(...points.map((point) => point.y)),
+    maximumY: Math.max(...points.map((point) => point.y))
   };
 }
 
@@ -56,7 +67,13 @@ function projectionFor(sceneProjection, id) {
   assert.equal(model.config.sensorWidth, 320);
   assert.equal(model.config.sensorHeight, 240);
   assert.equal(model.config.cameraHorizontalFovDegrees, 60);
+  assert.equal(model.config.cameraDown45PitchDegrees, 45);
   assert.equal(model.config.cameraDownPitchDegrees, 60);
+  assert.equal(model.config.robotDefaultLength, 18);
+  assert.equal(model.config.robotDefaultWidth, 18);
+  assert.equal(model.config.robotDimensionMin, 6);
+  assert.equal(model.config.robotDimensionMax, 36);
+  assert.equal(model.config.robotDimensionStep, 0.5);
   assert.equal(model.config.robotSide, 18);
   assert.equal(model.config.robotCornerRadius, 2);
   assert.equal(model.config.robotTopZ, 4.5);
@@ -68,6 +85,9 @@ function projectionFor(sceneProjection, id) {
   assert.ok(Object.isFrozen(model.scene));
   assert.ok(Object.isFrozen(model.scene.fiducials));
   assert.ok(Object.isFrozen(model.scene.fiducials[0].corners));
+  assert.deepEqual(model.normalizeChassis(), { length: 18, width: 18 });
+  assert.deepEqual(model.normalizeChassis({ chassis: { length: 29.74, width: 12.26 } }), { length: 29.5, width: 12.5 });
+  assert.deepEqual(model.normalizeChassis({ length: 0, width: 99 }), { length: 6, width: 36 });
   console.log("PASS: centralized scene, robot, camera, and pattern constants are dimensioned and immutable");
 }
 
@@ -151,6 +171,7 @@ function projectionFor(sceneProjection, id) {
   const state = model.createState();
   assert.equal(state.startPoseId, "table-4-north");
   assert.deepEqual(state.robot, { x: 0, y: 16, heading: -Math.PI / 2 });
+  assert.deepEqual(state.chassis, { length: 18, width: 18 });
   assert.deepEqual(state.camera, { mount: "front", height: 12, head: "forward" });
   assert.ok(model.startPoses.length >= 5);
   assert.equal(new Set(model.startPoses.map((pose) => pose.id)).size, model.startPoses.length);
@@ -168,6 +189,7 @@ function projectionFor(sceneProjection, id) {
     assert.deepEqual(state, before);
     assert.equal(moved.startPoseId, expected.id);
     assert.deepEqual(moved.robot, expected.robot);
+    assert.deepEqual(moved.chassis, state.chassis, "applying an entrance preset must preserve chassis dimensions");
     assert.deepEqual(moved.camera, state.camera, "applying an entrance preset must not change camera configuration");
     assert.ok(model.isPoseValid(moved.robot));
 
@@ -185,6 +207,10 @@ function projectionFor(sceneProjection, id) {
   assert.deepEqual(
     model.normalizeCameraSettings({ mount: "rear", height: 23.76, head: "down" }),
     { mount: "rear", height: 24, head: "down" }
+  );
+  assert.deepEqual(
+    model.normalizeCameraSettings({ mount: "left", height: 12, head: "down45" }),
+    { mount: "left", height: 12, head: "down45" }
   );
   console.log("PASS: fixed start-pose selection, inward entrance travel, and camera settings are deterministic and non-mutating");
 }
@@ -211,6 +237,116 @@ function projectionFor(sceneProjection, id) {
 }
 
 {
+  const defaultState = model.createState();
+  const poseOnlyFootprint = model.getRobotFootprint(defaultState.robot);
+  assert.deepEqual(model.getRobotFootprint(defaultState), poseOnlyFootprint, "pose-only calls must retain 18 × 18 geometry");
+  assert.deepEqual(
+    model.getCameraPose(defaultState.robot, defaultState.camera),
+    model.getCameraPose(defaultState),
+    "pose-only camera calls must retain the default 18-inch edge offset"
+  );
+
+  const longState = stateAt(
+    { x: 20, y: 0, heading: 0 },
+    { mount: "front", height: 12, head: "forward" },
+    { length: 30, width: 12 }
+  );
+  const wideState = stateAt(
+    { x: 20, y: 0, heading: 0 },
+    { mount: "front", height: 12, head: "forward" },
+    { length: 12, width: 30 }
+  );
+  const longBounds = boundsOf(model.getRobotFootprint(longState));
+  const wideBounds = boundsOf(model.getRobotFootprint(wideState));
+  nearlyEqual(longBounds.maximumX - longBounds.minimumX, 30);
+  nearlyEqual(longBounds.maximumY - longBounds.minimumY, 12);
+  nearlyEqual(wideBounds.maximumX - wideBounds.minimumX, 12);
+  nearlyEqual(wideBounds.maximumY - wideBounds.minimumY, 30);
+
+  const rotatedLong = { ...longState, robot: { ...longState.robot, heading: Math.PI / 2 } };
+  const rotatedWide = { ...wideState, robot: { ...wideState.robot, heading: Math.PI / 2 } };
+  const rotatedLongBounds = boundsOf(model.getRobotFootprint(rotatedLong));
+  nearlyEqual(rotatedLongBounds.maximumX - rotatedLongBounds.minimumX, 12);
+  nearlyEqual(rotatedLongBounds.maximumY - rotatedLongBounds.minimumY, 30);
+  assert.deepEqual(rotatedLong.chassis, { length: 30, width: 12 }, "rotation must not swap stored robot-local dimensions");
+
+  assert.deepEqual(model.collisionForPose(longState), { kind: "table", id: "table-4" });
+  assert.equal(model.isPoseValid(longState), false);
+  assert.equal(model.isPoseValid(rotatedLong), true);
+  assert.equal(model.isPoseValid(wideState), true);
+  assert.deepEqual(model.collisionForPose(rotatedWide), { kind: "table", id: "table-4" });
+  assert.equal(model.isPoseValid(rotatedWide), false);
+
+  const longLayout = model.layoutWorldView({
+    ...rotatedLong,
+    robot: { x: -18, y: 18, heading: -Math.PI / 2 }
+  });
+  const wideLayout = model.layoutWorldView({
+    ...wideState,
+    robot: { x: 0, y: 16, heading: -Math.PI / 2 }
+  });
+  const longLayoutBounds = boundsOf(longLayout.robot.footprint);
+  const wideLayoutBounds = boundsOf(wideLayout.robot.footprint);
+  assert.deepEqual(
+    { length: longLayout.robot.length, width: longLayout.robot.width },
+    { length: 30, width: 12 }
+  );
+  assert.deepEqual(
+    { length: wideLayout.robot.length, width: wideLayout.robot.width },
+    { length: 12, width: 30 }
+  );
+  nearlyEqual(longLayoutBounds.maximumX - longLayoutBounds.minimumX, 12 * longLayout.scale);
+  nearlyEqual(longLayoutBounds.maximumY - longLayoutBounds.minimumY, 30 * longLayout.scale);
+  nearlyEqual(wideLayoutBounds.maximumX - wideLayoutBounds.minimumX, 30 * wideLayout.scale);
+  nearlyEqual(wideLayoutBounds.maximumY - wideLayoutBounds.minimumY, 12 * wideLayout.scale);
+  console.log("PASS: 30 × 12 and 12 × 30 chassis footprints stay robot-local and collide as rotated rounded rectangles");
+}
+
+{
+  const validState = model.createState({
+    startPoseId: "center-lane-northwest",
+    chassis: { length: 30, width: 12 },
+    camera: { mount: "rear", height: 17.5, head: "down45" }
+  });
+  assert.equal(model.isPoseValid(validState), true);
+  const moved = model.applyStartPose(validState, "top-opening-right");
+  assert.deepEqual(moved.chassis, { length: 30, width: 12 });
+  assert.deepEqual(moved.robot, { x: 54, y: 48, heading: -Math.PI / 2 });
+  assert.deepEqual(moved.camera, validState.camera);
+  assert.equal(model.isPoseValid(moved), true);
+
+  const incompatible = model.createState({ chassis: { length: 12, width: 30 } });
+  const before = clone(incompatible);
+  assert.throws(
+    () => model.applyStartPose(incompatible, "top-opening-right"),
+    /does not fit the 12 × 30-inch chassis/
+  );
+  assert.deepEqual(incompatible, before, "a rejected starting pose must not mutate the prior valid state");
+  assert.throws(
+    () => model.createState({
+      startPoseId: "top-opening-right",
+      chassis: { length: 6, width: 24 },
+    }),
+    /does not fit the 6 × 24-inch chassis/,
+    "state construction must reject the same incompatible selected start as later start application",
+  );
+  console.log("PASS: resized start application preserves chassis/camera and rejects an overlapping preset without mutation");
+}
+
+{
+  assert.deepEqual(
+    model.collisionForPose({ x: NaN, y: 20, heading: 0 }),
+    { kind: "invalid-pose" },
+  );
+  assert.deepEqual(
+    model.collisionForPose({ robot: { x: 20, y: undefined, heading: 0 }, chassis: { length: 18, width: 18 } }),
+    { kind: "invalid-pose" },
+  );
+  assert.equal(model.isPoseValid({ x: NaN, y: 20, heading: 0 }), false);
+  console.log("PASS: invalid raw poses are rejected before normalization can sanitize them");
+}
+
+{
   const drivetrain = Object.freeze({ leftOutput: 20, rightOutput: 20 });
   const start = { x: -18, y: 18, heading: -Math.PI / 2 };
   const result = model.integrateRobot(start, drivetrain, 1);
@@ -223,6 +359,37 @@ function projectionFor(sceneProjection, id) {
   assert.deepEqual(drivetrain, { leftOutput: 20, rightOutput: 20 });
   assert.deepEqual(start, { x: -18, y: 18, heading: -Math.PI / 2 });
   console.log("PASS: straight travel through an inter-table lane is non-mutating and substep-bounded");
+}
+
+{
+  const compactState = stateAt(
+    { x: -18, y: 18, heading: 0 },
+    null,
+    { length: 6, width: 6 }
+  );
+  const straight = model.integrateRobot(compactState, { leftOutput: 20, rightOutput: 20 }, 0.25);
+  assert.equal(straight.blocked, false);
+  assert.ok(straight.pose.x > compactState.robot.x);
+  nearlyEqual(straight.pose.y, compactState.robot.y);
+  nearlyEqual(straight.pose.heading, 0);
+
+  const arc = model.integrateRobot(compactState, { leftOutput: 10, rightOutput: 20 }, 0.25);
+  assert.equal(arc.blocked, false);
+  assert.ok(arc.pose.x > compactState.robot.x);
+  assert.ok(arc.pose.y > compactState.robot.y);
+  assert.ok(arc.pose.heading > 0);
+
+  const pivot = model.integrateRobot(compactState, { leftOutput: -20, rightOutput: 20 }, 0.25);
+  assert.equal(pivot.blocked, false);
+  nearlyEqual(pivot.pose.x, compactState.robot.x);
+  nearlyEqual(pivot.pose.y, compactState.robot.y);
+  assert.ok(pivot.pose.heading > 0);
+
+  const oneSide = model.integrateRobot(compactState, { leftOutput: 0, rightOutput: 20 }, 0.25);
+  assert.equal(oneSide.blocked, false);
+  assert.ok(oneSide.pose.x > compactState.robot.x);
+  assert.ok(oneSide.pose.heading > 0);
+  console.log("PASS: equal, unequal, opposite, and one-sided motor outputs produce straight, arc, pivot, and one-side motion");
 }
 
 {
@@ -267,13 +434,53 @@ function projectionFor(sceneProjection, id) {
 }
 
 {
+  const wallApproach = stateAt(
+    { x: 40, y: 18, heading: 0 },
+    null,
+    { length: 30, width: 12 }
+  );
+  assert.equal(model.isPoseValid(wallApproach), true);
+  const wallBlocked = model.integrateRobot(wallApproach, { leftOutput: 100, rightOutput: 100 }, 1);
+  assert.equal(wallBlocked.blocked, true);
+  assert.deepEqual(wallBlocked.collision, { kind: "wall", id: "wall-right" });
+  assert.ok(wallBlocked.completedSubsteps < wallBlocked.substeps);
+
+  const tableApproach = stateAt(
+    { x: 0, y: 18, heading: -Math.PI / 2 },
+    null,
+    { length: 12, width: 30 }
+  );
+  assert.equal(model.isPoseValid(tableApproach), true);
+  const tableBlocked = model.integrateRobot(tableApproach, { leftOutput: 100, rightOutput: 100 }, 1);
+  assert.equal(tableBlocked.blocked, true);
+  assert.deepEqual(tableBlocked.collision, { kind: "table", id: "table-4" });
+  assert.ok(tableBlocked.completedSubsteps < tableBlocked.substeps);
+
+  const rotationApproach = stateAt(
+    { x: 20, y: 0, heading: 0 },
+    null,
+    { length: 12, width: 30 }
+  );
+  const rotationBlocked = model.integrateRobot(
+    rotationApproach,
+    { leftOutput: -100, rightOutput: 100 },
+    1
+  );
+  assert.equal(rotationBlocked.blocked, true);
+  assert.equal(rotationBlocked.collision.kind, "table");
+  assert.ok(rotationBlocked.completedSubsteps < rotationBlocked.substeps);
+  assert.ok(Math.abs(rotationBlocked.pose.heading) < Math.abs(rotationBlocked.attemptedPose.heading));
+  console.log("PASS: resized translation and rotation retain swept table/wall collision blocking");
+}
+
+{
   const robot = { x: 7, y: -11, heading: 0.37 };
   const original = clone(robot);
   const yawOffsets = { front: 0, rear: Math.PI, left: Math.PI / 2, right: -Math.PI / 2 };
 
   Object.keys(yawOffsets).forEach((mount) => {
     [5.5, 24].forEach((height) => {
-      ["forward", "down"].forEach((head) => {
+      ["forward", "down45", "down"].forEach((head) => {
         const camera = model.getCameraPose(robot, { mount, height, head });
         nearlyEqual(Math.hypot(camera.position.x - robot.x, camera.position.y - robot.y), 9);
         nearlyEqual(camera.position.z, height);
@@ -283,13 +490,40 @@ function projectionFor(sceneProjection, id) {
         nearlyEqual(dot(camera.forward, camera.right), 0);
         nearlyEqual(dot(camera.forward, camera.up), 0);
         nearlyEqual(dot(camera.right, camera.up), 0);
-        nearlyEqual(camera.pitchDegrees, head === "down" ? 60 : 0);
+        nearlyEqual(camera.pitchDegrees, { forward: 0, down45: 45, down: 60 }[head]);
         nearlyEqual(model.normalizeAngle(camera.yaw - robot.heading), model.normalizeAngle(yawOffsets[mount]));
       });
     });
   });
   assert.deepEqual(robot, original);
   console.log("PASS: all mounts and height endpoints use rigid orthonormal camera transforms without changing chassis pose");
+}
+
+{
+  const robot = { x: 7, y: -11, heading: Math.PI / 3 };
+  const chassis = { length: 30, width: 12 };
+  const state = stateAt(robot, null, chassis);
+  const cosine = Math.cos(robot.heading);
+  const sine = Math.sin(robot.heading);
+  const localOffsets = {
+    front: { x: 15, y: 0 },
+    rear: { x: -15, y: 0 },
+    left: { x: 0, y: 6 },
+    right: { x: 0, y: -6 }
+  };
+
+  Object.entries(localOffsets).forEach(([mount, local]) => {
+    const camera = model.getCameraPose({
+      ...state,
+      camera: { mount, height: 12, head: "down45" }
+    });
+    nearlyEqual(camera.position.x, robot.x + local.x * cosine - local.y * sine);
+    nearlyEqual(camera.position.y, robot.y + local.x * sine + local.y * cosine);
+    nearlyEqual(camera.pitchDegrees, 45);
+  });
+  assert.deepEqual(state.chassis, chassis);
+  assert.deepEqual(state.robot, robot);
+  console.log("PASS: all camera mounts follow the midpoint of the resized robot-local body edge under rotation");
 }
 
 {
@@ -410,10 +644,33 @@ function projectionFor(sceneProjection, id) {
 }
 
 {
+  const robot = { x: -72, y: 79, heading: -2 * Math.PI / 3 };
+  const camera = { mount: "left", height: 5.5, head: "forward" };
+  const compact = stateAt(robot, camera, { length: 6, width: 6 });
+  const wide = stateAt(robot, camera, { length: 6, width: 36 });
+  assert.equal(model.isPoseValid(compact), true);
+  assert.equal(model.isPoseValid(wide), true);
+
+  const compactMarker = projectionFor(model.projectScene(compact), 12);
+  const wideMarker = projectionFor(model.projectScene(wide), 12);
+  ["frontFacing", "allInFront", "fullyInFrame", "sufficientlyLarge"].forEach((key) => {
+    assert.equal(compactMarker[key], true);
+    assert.equal(wideMarker[key], true);
+  });
+  assert.deepEqual(compactMarker.rejectionReasons, ["occluded"]);
+  assert.equal(compactMarker.eligible, false);
+  assert.deepEqual(wideMarker.rejectionReasons, []);
+  assert.equal(wideMarker.eligible, true);
+  assert.equal(model.detectFiducials(compact).some((detection) => detection.id === 12), false);
+  assert.equal(model.detectFiducials(wide).some((detection) => detection.id === 12), true);
+  console.log("PASS: resized camera-edge placement feeds the real projection and 3D occlusion path");
+}
+
+{
   const robot = { x: -18, y: 0, heading: 0 };
   ["front", "rear", "left", "right"].forEach((mount) => {
     [5.5, 24].forEach((height) => {
-      ["forward", "down"].forEach((head) => {
+      ["forward", "down45", "down"].forEach((head) => {
         const projection = model.projectScene(stateAt(robot, { mount, height, head }));
         projection.markers.forEach((candidate) => {
           candidate.corners.forEach((corner) => {
@@ -432,8 +689,10 @@ function projectionFor(sceneProjection, id) {
 
 {
   const forwardState = model.createState({ camera: { mount: "front", height: 12, head: "forward" } });
+  const down45State = model.createState({ camera: { mount: "front", height: 12, head: "down45" } });
   const downState = model.createState({ camera: { mount: "front", height: 12, head: "down" } });
   const forwardLayout = model.layoutWorldView(forwardState);
+  const down45Layout = model.layoutWorldView(down45State);
   const downLayout = model.layoutWorldView(downState);
   assert.equal(forwardLayout.width, 320);
   assert.equal(forwardLayout.height, 220);
@@ -441,22 +700,41 @@ function projectionFor(sceneProjection, id) {
   assert.equal(forwardLayout.walls.length, 4);
   assert.equal(forwardLayout.tables.length, 9);
   assert.equal(forwardLayout.fiducials.length, 21);
-  assert.equal(forwardLayout.robot.footprint.length, model.getRobotFootprint(forwardState.robot).length);
+  assert.equal(forwardLayout.robot.length, 18);
+  assert.equal(forwardLayout.robot.width, 18);
+  assert.equal(forwardLayout.robot.footprint.length, model.getRobotFootprint(forwardState).length);
+  assert.deepEqual(forwardLayout.robot, down45Layout.robot, "45-degree head tilt must leave the World View chassis unchanged");
   assert.deepEqual(forwardLayout.robot, downLayout.robot, "head tilt must leave the World View chassis unchanged");
+  assert.deepEqual(
+    { x: forwardLayout.camera.x, y: forwardLayout.camera.y, mount: forwardLayout.camera.mount },
+    { x: down45Layout.camera.x, y: down45Layout.camera.y, mount: down45Layout.camera.mount }
+  );
   assert.deepEqual(
     { x: forwardLayout.camera.x, y: forwardLayout.camera.y, mount: forwardLayout.camera.mount },
     { x: downLayout.camera.x, y: downLayout.camera.y, mount: downLayout.camera.mount }
   );
+  assert.notDeepEqual(forwardLayout.camera.viewFootprint, down45Layout.camera.viewFootprint);
+  assert.notDeepEqual(down45Layout.camera.viewFootprint, downLayout.camera.viewFootprint);
   assert.notDeepEqual(forwardLayout.camera.viewFootprint, downLayout.camera.viewFootprint);
+  assert.notDeepEqual(forwardLayout.camera.direction, down45Layout.camera.direction);
+  assert.notDeepEqual(down45Layout.camera.direction, downLayout.camera.direction);
   assert.notDeepEqual(forwardLayout.camera.direction, downLayout.camera.direction);
-  [forwardLayout, downLayout].forEach((layout) => {
+  [forwardLayout, down45Layout, downLayout].forEach((layout) => {
     layout.camera.viewFootprint.forEach((point) => {
       assert.ok(Number.isFinite(point.x) && Number.isFinite(point.y));
       assert.ok(point.x >= 0 && point.x <= layout.width);
       assert.ok(point.y >= 0 && point.y <= layout.height);
     });
   });
-  console.log("PASS: World View separates chassis, active mount, outer boundary, and tilt-dependent camera footprint");
+
+  const projections = [forwardState, down45State, downState].map((state) => model.projectScene(state));
+  assert.deepEqual(projections.map((projection) => projection.camera.pitchDegrees), [0, 45, 60]);
+  assert.ok(projections[0].camera.forward.z > projections[1].camera.forward.z);
+  assert.ok(projections[1].camera.forward.z > projections[2].camera.forward.z);
+  assert.deepEqual(projections[0].chassis, { length: 18, width: 18 });
+  assert.notDeepEqual(projectionFor(projections[0], 4).bounds, projectionFor(projections[1], 4).bounds);
+  assert.notDeepEqual(projectionFor(projections[1], 4).bounds, projectionFor(projections[2], 4).bounds);
+  console.log("PASS: World View and real projection distinguish 0°, 45°, and legacy 60° head transforms without moving chassis");
 }
 
 console.log("All dining-room model tests passed.");
