@@ -291,8 +291,8 @@
     deepFreeze({ id: "table-4-north", label: "Center table — north side", x: 0, y: 16, heading: -Math.PI / 2 }),
     deepFreeze({ id: "center-lane-northwest", label: "Northwest lane intersection", x: -18, y: 18, heading: -Math.PI / 2 }),
     deepFreeze({ id: "center-lane-southeast", label: "Southeast lane intersection", x: 18, y: -18, heading: Math.PI / 2 }),
-    deepFreeze({ id: "top-opening-right", label: "Top-right opening", x: 54, y: 48, heading: Math.PI / 2 }),
-    deepFreeze({ id: "bottom-opening-left", label: "Bottom-left opening", x: -54, y: -48, heading: -Math.PI / 2 })
+    deepFreeze({ id: "top-opening-right", label: "Top-right opening", x: 54, y: 48, heading: -Math.PI / 2 }),
+    deepFreeze({ id: "bottom-opening-left", label: "Bottom-left opening", x: -54, y: -48, heading: Math.PI / 2 })
   ]);
 
   const START_POSE_BY_ID = Object.freeze(START_POSES.reduce((result, pose) => {

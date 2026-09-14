@@ -103,6 +103,53 @@ const simulator = browserWindow.VisionSimulator;
 }
 
 {
+  const entranceCases = [
+    { id: "top-opening-right", robot: { x: 54, y: 48, heading: -Math.PI / 2 } },
+    { id: "bottom-opening-left", robot: { x: -54, y: -48, heading: Math.PI / 2 } },
+  ];
+
+  entranceCases.forEach((expected) => {
+    const savedSettings = {
+      scene: "byte-to-bite-dining-room",
+      camera: { mount: "rear", height: 17.5 },
+      startPose: expected.id,
+    };
+    assert.deepEqual(JSON.parse(JSON.stringify(simulator.applySettings(savedSettings))), savedSettings);
+
+    const started = simulator.getWorldState();
+    assert.deepEqual(JSON.parse(JSON.stringify(started.robot)), expected.robot);
+    assert.deepEqual(JSON.parse(JSON.stringify(started.camera)), { mount: "rear", height: 17.5, head: "forward" });
+    assert.equal(started.blocked, false);
+
+    simulator.setHeadPreset("down");
+    const articulated = simulator.getWorldState();
+    assert.deepEqual(JSON.parse(JSON.stringify(articulated.robot)), expected.robot, "camera articulation must not rotate the chassis");
+    assert.deepEqual(JSON.parse(JSON.stringify(articulated.camera)), { mount: "rear", height: 17.5, head: "down" });
+
+    drivetrain.leftOutput = 20;
+    drivetrain.rightOutput = 20;
+    simulator.step(0.25);
+    const driven = simulator.getWorldState();
+    assert.equal(driven.blocked, false);
+    assert.ok(Math.abs(driven.robot.y) < Math.abs(expected.robot.y), `${expected.id} must drive farther into the room`);
+    assert.equal(driven.robot.heading, expected.robot.heading);
+    assert.deepEqual(JSON.parse(JSON.stringify(driven.camera)), { mount: "rear", height: 17.5, head: "down" });
+
+    simulator.resetWorld();
+    const reset = simulator.getWorldState();
+    assert.deepEqual(JSON.parse(JSON.stringify(reset.robot)), expected.robot);
+    assert.deepEqual(JSON.parse(JSON.stringify(simulator.getSettings())), savedSettings);
+    assert.deepEqual(JSON.parse(JSON.stringify(reset.camera)), { mount: "rear", height: 17.5, head: "forward" });
+  });
+  simulator.applySettings({
+    scene: "byte-to-bite-dining-room",
+    camera: { mount: "front", height: 12 },
+    startPose: "table-4-north",
+  });
+  console.log("PASS: entrance presets face inward through apply, forward travel, camera articulation, and reset");
+}
+
+{
   const before = simulator.getWorldState();
   drivetrain.leftOutput = 37;
   drivetrain.rightOutput = 24;

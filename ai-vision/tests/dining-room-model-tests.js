@@ -156,12 +156,27 @@ function projectionFor(sceneProjection, id) {
   assert.equal(new Set(model.startPoses.map((pose) => pose.id)).size, model.startPoses.length);
   model.startPoses.forEach((pose) => assert.ok(model.isPoseValid(pose), `${pose.id} must be collision-free`));
 
-  const before = clone(state);
-  const moved = model.applyStartPose(state, "top-opening-right");
-  assert.deepEqual(state, before);
-  assert.equal(moved.startPoseId, "top-opening-right");
-  assert.deepEqual(moved.robot, { x: 54, y: 48, heading: Math.PI / 2 });
-  assert.ok(model.isPoseValid(moved.robot));
+  const entranceCases = [
+    { id: "top-opening-right", label: "Top-right opening", robot: { x: 54, y: 48, heading: -Math.PI / 2 } },
+    { id: "bottom-opening-left", label: "Bottom-left opening", robot: { x: -54, y: -48, heading: Math.PI / 2 } }
+  ];
+  entranceCases.forEach((expected) => {
+    const preset = model.startPoses.find((candidate) => candidate.id === expected.id);
+    assert.deepEqual(preset, { id: expected.id, label: expected.label, ...expected.robot });
+    const before = clone(state);
+    const moved = model.applyStartPose(state, expected.id);
+    assert.deepEqual(state, before);
+    assert.equal(moved.startPoseId, expected.id);
+    assert.deepEqual(moved.robot, expected.robot);
+    assert.deepEqual(moved.camera, state.camera, "applying an entrance preset must not change camera configuration");
+    assert.ok(model.isPoseValid(moved.robot));
+
+    const forward = model.integrateRobot(moved.robot, { leftOutput: 20, rightOutput: 20 }, 0.25);
+    assert.equal(forward.blocked, false);
+    nearlyEqual(forward.pose.x, expected.robot.x);
+    assert.ok(Math.abs(forward.pose.y) < Math.abs(expected.robot.y), `${expected.id} must drive farther into the room`);
+    nearlyEqual(forward.pose.heading, expected.robot.heading);
+  });
 
   assert.deepEqual(
     model.normalizeCameraSettings({ mount: "bogus", height: 2, head: "bogus" }),
@@ -171,7 +186,7 @@ function projectionFor(sceneProjection, id) {
     model.normalizeCameraSettings({ mount: "rear", height: 23.76, head: "down" }),
     { mount: "rear", height: 24, head: "down" }
   );
-  console.log("PASS: fixed start-pose selection and camera-setting validation are deterministic and non-mutating");
+  console.log("PASS: fixed start-pose selection, inward entrance travel, and camera settings are deterministic and non-mutating");
 }
 
 {
