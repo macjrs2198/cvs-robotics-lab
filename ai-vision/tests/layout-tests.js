@@ -417,16 +417,57 @@ function createControllerHarness(existingStorageValues) {
   assert.match(stylesSource, /\.practice-obstructions-controls\s*\{[^}]*display:\s*grid;/s);
   assert.match(stylesSource, /@media \(max-width: 620px\)[\s\S]*?\.practice-obstructions-button\s*\{[^}]*grid-column:\s*1\s*\/\s*-1;/);
 
+  const tableMealsDetails = elementTag("details", "table-meals-details");
+  assert.match(tableMealsDetails, /\shidden(?:\s|>)/, "Table Meals must start hidden outside Dining Room");
+  assert.match(indexSource, /<summary>Table Meals <span id="table-meals-summary-state"[^>]*>Off &middot; 0 selected<\/span><\/summary>/);
+  const tableMealsFieldset = elementTag("fieldset", "table-meals-fieldset");
+  assert.match(tableMealsFieldset, /\sdisabled(?:\s|>)/, "Table Meals must start disabled");
+  assert.equal(attribute(tableMealsFieldset, "aria-describedby"), "table-meals-status");
+  const mealsToggle = elementTag("input", "table-meals-toggle");
+  assert.equal(attribute(mealsToggle, "type"), "checkbox");
+  assert.equal(attribute(mealsToggle, "checked"), null, "Table Meals must default off");
+  assert.match(indexSource, /id="table-meals-toggle-state"[^>]*>Off<\/span>/);
+  assert.match(indexSource, /World View IDs 0&ndash;8/);
+  const mealGrid = indexSource.match(/<div class="table-meals-grid"[^>]*>([\s\S]*?)<\/div>/);
+  assert.ok(mealGrid, "three-by-three Table Meals grid must exist");
+  const mealButtons = Array.from(mealGrid[1].matchAll(/<button\b([^>]*)>([\s\S]*?)<\/button>/g), (match) => ({
+    id: attribute(match[1], "id"),
+    tableId: attribute(match[1], "data-table-id"),
+    type: attribute(match[1], "type"),
+    pressed: attribute(match[1], "aria-pressed"),
+    label: match[2].replace(/&middot;/g, "·").replace(/\s+/g, " ").trim(),
+  }));
+  assert.deepEqual(mealButtons, Array.from({ length: 9 }, (_, id) => ({
+    id: `table-meal-${id}-button`,
+    tableId: String(id),
+    type: "button",
+    pressed: "false",
+    label: `${id} · Empty`,
+  })), "table IDs 0–8 must match World View row order and expose text plus pressed state");
+  ["randomize-meals-button", "clear-meals-button"].forEach((id) => {
+    const button = elementTag("button", id);
+    assert.equal(attribute(button, "type"), "button");
+    assert.equal(attribute(button, "aria-controls"), "dining-world-canvas dining-camera-canvas");
+  });
+  const mealsStatus = elementTag("p", "table-meals-status");
+  assert.equal(attribute(mealsStatus, "role"), "status");
+  assert.equal(attribute(mealsStatus, "aria-live"), "polite");
+  assert.match(stylesSource, /\.table-meals\s*\{[^}]*grid-column:\s*1\s*\/\s*-1;/s);
+  assert.match(stylesSource, /\.table-meals-grid\s*\{[^}]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\);/s);
+  assert.match(stylesSource, /\.table-meal-button\[aria-pressed="true"\]\s*\{/);
+  assert.match(stylesSource, /@media \(max-width: 620px\)[\s\S]*?\.table-meals-actions\s*\{[^}]*grid-template-columns:\s*1fr;/);
+  assert.match(stylesSource, /@media \(forced-colors: active\)[\s\S]*?\.table-meal-button\[aria-pressed="true"\]/);
+
   const expectedAssetVersions = {
-    "styles.css": "6.0",
-    "help-content.js": "5.0",
-    "dining-room-model.js": "3.0",
+    "styles.css": "7.0",
+    "help-content.js": "6.0",
+    "dining-room-model.js": "4.0",
     "simulator.js": "3.0",
-    "dining-room-controller.js": "4.0",
+    "dining-room-controller.js": "5.0",
     "drivetrain.js": "2.0",
     "blocks.js": "4.0",
     "layout.js": "1.0",
-    "app.js": "6.0",
+    "app.js": "6.1",
   };
   Object.entries(expectedAssetVersions).forEach(([assetName, expectedVersion]) => {
     assert.equal(
@@ -438,5 +479,5 @@ function createControllerHarness(existingStorageValues) {
 
   ["VisionSimulator", "takeSnapshot", "resetWorld", "resetTarget", "setTargetPosition", "Drivetrain", "cvsProgramControl"]
     .forEach((forbidden) => assert.equal(layoutSource.includes(forbidden), false, `${forbidden} must stay out of layout.js`));
-  console.log("PASS: setup labels, obstruction controls, dimensions, camera cap, cache busts, and source boundaries remain exact");
+  console.log("PASS: setup labels, compact Table Meals, obstruction controls, dimensions, camera cap, cache busts, and source boundaries remain exact");
 }

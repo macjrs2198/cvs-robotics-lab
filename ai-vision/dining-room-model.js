@@ -34,6 +34,18 @@
   const TABLE_SIDE = 12;
   const TABLE_TOP_Z = 3.625;
   const TABLE_MARKER_PLANE_Z = 3.6281;
+  // Approximate practice-meal dimensions; these are not official game specifications.
+  const MEAL_PLATE_RADIUS = 4.25;
+  const MEAL_PLATE_THICKNESS = 0.35;
+  const MEAL_PLATE_SEGMENTS = 16;
+  const MEAL_FOOD_SEGMENTS = 10;
+  const MEAL_POST_RADIUS = 0.28;
+  const MEAL_POST_HEIGHT = 1.5;
+  const MEAL_FOOD_PIECES = Object.freeze([
+    deepFreeze({ x: -1.35, y: 0.55, radius: 0.85, height: 0.6 }),
+    deepFreeze({ x: 1.35, y: 0.5, radius: 0.95, height: 0.75 }),
+    deepFreeze({ x: 0, y: -1.35, radius: 0.8, height: 0.55 })
+  ]);
   const WALL_HEIGHT = 18;
   const WALL_INNER_HALF_SPAN = 66;
   const WALL_LONG_HALF_LENGTH = 69.625;
@@ -431,6 +443,7 @@
       source.practiceObstructions,
       { robot: selectedRobot, chassis }
     );
+    const tableMeals = normalizeTableMeals(source.tableMeals);
 
     return {
       sceneId: SCENE_ID,
@@ -438,6 +451,7 @@
       robot,
       chassis,
       camera: normalizeCameraSettings(cameraSource),
+      tableMeals,
       practiceObstructions,
       practiceRuntime: initialPracticeRuntime(practiceObstructions)
     };
@@ -467,6 +481,7 @@
       current.practiceObstructions,
       { robot, chassis }
     );
+    const tableMeals = normalizeTableMeals(current.tableMeals);
 
     return {
       ...current,
@@ -475,6 +490,7 @@
       robot,
       chassis,
       camera: normalizeCameraSettings(current.camera),
+      tableMeals,
       practiceObstructions,
       practiceRuntime: initialPracticeRuntime(practiceObstructions)
     };
@@ -649,10 +665,10 @@
     ];
   }
 
-  function circularFootprint(x, y, radius = PRACTICE_FRUIT_RADIUS) {
+  function circularFootprint(x, y, radius = PRACTICE_FRUIT_RADIUS, segments = PRACTICE_FRUIT_SEGMENTS) {
     const points = [];
-    for (let index = 0; index < PRACTICE_FRUIT_SEGMENTS; index += 1) {
-      const angle = index / PRACTICE_FRUIT_SEGMENTS * Math.PI * 2;
+    for (let index = 0; index < segments; index += 1) {
+      const angle = index / segments * Math.PI * 2;
       points.push({ x: x + Math.cos(angle) * radius, y: y + Math.sin(angle) * radius });
     }
     return points;
@@ -779,6 +795,91 @@
       outerBoundary: PRACTICE_BOUNDARY,
       obstructions: [...occupied, ...reserved]
     }) === null;
+  }
+
+  function normalizeTableMeals(candidate) {
+    if (candidate === undefined || candidate === null) {
+      return { enabled: false, selectedIds: [] };
+    }
+    if (typeof candidate !== "object" || Array.isArray(candidate)) {
+      throw new Error("Table Meals settings must be an object.");
+    }
+    if (candidate.enabled !== undefined && typeof candidate.enabled !== "boolean") {
+      throw new Error("Table Meals enabled must be true or false.");
+    }
+    const selectedIds = candidate.selectedIds === undefined ? [] : candidate.selectedIds;
+    if (!Array.isArray(selectedIds)) {
+      throw new Error("Table Meals selected IDs must be an array.");
+    }
+    const seen = new Set();
+    selectedIds.forEach((id) => {
+      if (!Number.isInteger(id) || id < 0 || id >= TABLES.length) {
+        throw new Error("Table Meals IDs must be integers from 0 through 8.");
+      }
+      if (seen.has(id)) {
+        throw new Error(`Table Meals ID ${id} is duplicated.`);
+      }
+      seen.add(id);
+    });
+    return { enabled: candidate.enabled === true, selectedIds: [...selectedIds].sort((a, b) => a - b) };
+  }
+
+  function mealGeometryForState(state) {
+    const settings = normalizeTableMeals(state && state.tableMeals);
+    if (!settings.enabled) return [];
+    return settings.selectedIds.map((tableId) => {
+      const table = TABLES[tableId];
+      const x = table.center.x;
+      const y = table.center.y;
+      const plateTopZ = TABLE_TOP_Z + MEAL_PLATE_THICKNESS;
+      const components = [{
+        id: `meal-table-${tableId}-plate`,
+        kind: "plate",
+        x,
+        y,
+        radius: MEAL_PLATE_RADIUS,
+        minimumZ: TABLE_TOP_Z,
+        maximumZ: plateTopZ,
+        footprint: circularFootprint(x, y, MEAL_PLATE_RADIUS, MEAL_PLATE_SEGMENTS)
+      }];
+
+      MEAL_FOOD_PIECES.forEach((piece, index) => {
+        const foodX = x + piece.x;
+        const foodY = y + piece.y;
+        components.push({
+          id: `meal-table-${tableId}-food-${index + 1}`,
+          kind: "food",
+          x: foodX,
+          y: foodY,
+          radius: piece.radius,
+          minimumZ: plateTopZ,
+          maximumZ: plateTopZ + piece.height,
+          footprint: circularFootprint(foodX, foodY, piece.radius, MEAL_FOOD_SEGMENTS)
+        });
+      });
+
+      components.push({
+        id: `meal-table-${tableId}-post`,
+        kind: "post",
+        x,
+        y,
+        radius: MEAL_POST_RADIUS,
+        minimumZ: plateTopZ,
+        maximumZ: plateTopZ + MEAL_POST_HEIGHT,
+        footprint: circularFootprint(x, y, MEAL_POST_RADIUS, MEAL_FOOD_SEGMENTS)
+      });
+
+      return {
+        id: `meal-table-${tableId}`,
+        kind: "table-meal",
+        tableId,
+        tableOwnerId: table.id,
+        x,
+        y,
+        z: TABLE_TOP_Z,
+        components
+      };
+    });
   }
 
   function normalizePracticeObstructions(candidate, context) {
@@ -1682,15 +1783,20 @@
     const robotState = { robot, chassis };
     const camera = getCameraPose(state || robot, cameraSettings || (state && state.camera));
     const obstructions = state ? practiceSolidsForState(state) : [];
+    const meals = mealGeometryForState(state);
+    const occludingGeometry = [
+      ...obstructions,
+      ...meals.flatMap((meal) => meal.components)
+    ];
     const markers = FIDUCIALS.map((candidateMarker) =>
-      projectMarker(candidateMarker, camera, robotState, obstructions)
+      projectMarker(candidateMarker, camera, robotState, occludingGeometry)
     );
     const detections = markers
       .filter((candidate) => candidate.eligible)
       .sort((a, b) => a.id - b.id)
       .map(detectionFromProjection);
 
-    return deepFreeze({ camera, robot, chassis, obstructions, markers, detections });
+    return deepFreeze({ camera, robot, chassis, obstructions, meals, markers, detections });
   }
 
   function detectionFromProjection(projection) {
@@ -1838,6 +1944,23 @@
           footprint: obstruction.footprint.map(toScreen)
         };
       }),
+      meals: mealGeometryForState(state).map((meal) => {
+        const center = toScreen(meal);
+        return {
+          ...meal,
+          x: center.x,
+          y: center.y,
+          components: meal.components.map((component) => {
+            const componentCenter = toScreen(component);
+            return {
+              ...component,
+              x: componentCenter.x,
+              y: componentCenter.y,
+              footprint: component.footprint.map(toScreen)
+            };
+          })
+        };
+      }),
       robot: {
         x: robotPoint.x,
         y: robotPoint.y,
@@ -1887,6 +2010,13 @@
     tableSide: TABLE_SIDE,
     tableTopZ: TABLE_TOP_Z,
     tableMarkerPlaneZ: TABLE_MARKER_PLANE_Z,
+    mealPlateRadius: MEAL_PLATE_RADIUS,
+    mealPlateThickness: MEAL_PLATE_THICKNESS,
+    mealPlateSegments: MEAL_PLATE_SEGMENTS,
+    mealFoodSegments: MEAL_FOOD_SEGMENTS,
+    mealFoodPieces: MEAL_FOOD_PIECES,
+    mealPostRadius: MEAL_POST_RADIUS,
+    mealPostHeight: MEAL_POST_HEIGHT,
     wallHeight: WALL_HEIGHT,
     wallInnerHalfSpan: WALL_INNER_HALF_SPAN,
     wallLongHalfLength: WALL_LONG_HALF_LENGTH,
@@ -1926,7 +2056,7 @@
     detectionModel: "analytic projected fiducial geometry; not hardware-validated decoding",
     detectionOrdering: "ascending fiducial ID",
     cutoffPolicy: "the complete recognition pattern must be inside the image",
-    occlusionPolicy: "reject when modeled walls, tables, the chassis, or practice obstructions block sampled pattern sightlines"
+    occlusionPolicy: "reject when modeled walls, tables, the chassis, practice obstructions, or table-meal geometry block sampled pattern sightlines"
   });
 
   return Object.freeze({
@@ -1942,6 +2072,7 @@
     normalizePose,
     normalizeChassis,
     normalizeCameraSettings,
+    normalizeTableMeals,
     normalizePracticeObstructions,
     createPracticeObstructions,
     getRobotFootprint,

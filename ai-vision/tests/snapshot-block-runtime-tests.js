@@ -27,7 +27,7 @@ const reporterMappings = {
 assert.match(appSource, /const STORAGE_KEY = "vex-ai-vision-simulator-program-v1";/);
 assert.match(appSource, /const PROGRAM_FORMAT = "cvs-robotics-program";/);
 assert.match(appSource, /const PROGRAM_FORMAT_VERSION = 1;/);
-assert.match(appSource, /const APP_VERSION = "5\.0";/);
+assert.match(appSource, /const APP_VERSION = "5\.1";/);
 
 Object.entries(reporterMappings).forEach(([blockType, sensorProperty]) => {
   assert.match(
@@ -130,11 +130,13 @@ assert.match(appSource, /window\.addEventListener\("visionsettingschange"[\s\S]*
 assert.match(appSource, /function renderProgramState\(state\)[\s\S]*?VisionSimulator\.syncProgramState\(state\)/);
 assert.match(controllerSource, /advanceRoaming:\s*Boolean\([\s\S]*?cvsProgramControl[\s\S]*?isRunning\(\)/);
 assert.match(controllerSource, /practiceObstructionsChanged[\s\S]*?!isProgramStopped\(\)[\s\S]*?Stop the program before changing practice obstructions/);
+assert.match(controllerSource, /tableMealsChanged[\s\S]*?!isProgramStopped\(\)[\s\S]*?Stop the program before changing table meals/);
 assert.doesNotMatch(
   blocksSource,
   /practice_obstruction|fruit_clutter|roaming_robot/i,
   "practice obstructions must not add Blockly commands or reporters",
 );
+assert.doesNotMatch(blocksSource, /table_meal|table_occupied|meal_detection/i);
 
 function outputConsoleStub() {
   return {
@@ -238,6 +240,7 @@ function makeRuntime() {
         fruit: cloneSettings(fruit),
         roamingStart: roamingStart === null ? null : cloneSettings(roamingStart),
       },
+      tableMeals: cloneSettings(diningModel.normalizeTableMeals(candidate.tableMeals)),
     };
   };
   const context = {
@@ -509,7 +512,8 @@ function testTransactionalSettings() {
       fruit: [],
       roamingStart: null,
     },
-  }, "legacy settings must gain safe camera, chassis, and disabled practice-obstruction defaults");
+    tableMeals: { enabled: false, selectedIds: [] },
+  }, "legacy settings must gain safe camera, chassis, practice-obstruction, and table-meal defaults");
   assert.throws(
     () => runtime.normalizeProgramSettings({ camera: { head: "down30" } }),
     /invalid camera head/,
@@ -539,6 +543,7 @@ function testTransactionalSettings() {
       fruit: [{ id: "fruit-1", x: 20, y: 20 }],
       roamingStart: { x: -20, y: -20, heading: 0 },
     },
+    tableMeals: { enabled: true, selectedIds: [8, 1, 4] },
   });
   runtime.replaceProgramTransactionally(
     { blocks: { blocks: [{ type: "vision_take_snapshot" }] } },
@@ -552,6 +557,7 @@ function testTransactionalSettings() {
   assert.equal(workspace.state.blocks.blocks[0].fields.SIGNATURE, "FIDUCIAL_IDS");
   assert.deepEqual(appliedSettings.at(-1), normalized);
   assert.deepEqual(runtime.createProgramFile().settings, normalized, "new head and chassis setup must be exported with the workspace");
+  assert.deepEqual(normalized.tableMeals, { enabled: true, selectedIds: [1, 4, 8] });
 
   order.length = 0;
   workspace.failNextLoad = true;
@@ -593,6 +599,23 @@ function testTransactionalSettings() {
   assert.equal(appliedSettings.length, applicationsBeforeInvalid, "invalid obstruction settings must fail before application");
   assert.deepEqual(workspace.state, workspaceBeforeInvalid, "invalid obstruction settings must not partially replace the workspace");
 
+  [
+    { enabled: true, selectedIds: [4, 4] },
+    { enabled: true, selectedIds: [9] },
+    { enabled: true, selectedIds: ["4"] },
+    { enabled: "yes", selectedIds: [4] },
+  ].forEach((tableMeals) => {
+    assert.throws(() => runtime.validateProgramFile({
+      format: "cvs-robotics-program",
+      formatVersion: 1,
+      app: "cvs-ai-vision",
+      workspace: { blocks: { blocks: [{ type: "must-not-load" }] } },
+      settings: { tableMeals },
+    }), /Table Meals/);
+    assert.equal(appliedSettings.length, applicationsBeforeInvalid);
+    assert.deepEqual(workspace.state, workspaceBeforeInvalid);
+  });
+
   order.length = 0;
   runtime.replaceProgramTransactionally(
     { blocks: { blocks: [{ type: "vision_take_snapshot" }] } },
@@ -611,6 +634,7 @@ function testTransactionalSettings() {
       fruit: [],
       roamingStart: null,
     },
+    tableMeals: { enabled: false, selectedIds: [] },
   }, "raw legacy saves restore their original Ball scene with compatible defaults");
   assert.equal(
     workspace.state.blocks.blocks[0].fields.SIGNATURE,
@@ -901,7 +925,7 @@ async function main() {
 
   console.log("PASS: VEX-style snapshot, three camera-head commands, and individual motor blocks are wired");
   console.log("PASS: legacy snapshots default by scene and raw saved workspaces remain loadable");
-  console.log("PASS: camera-head, chassis, and practice-obstruction settings validate, persist, and roll back transactionally");
+  console.log("PASS: camera-head, chassis, practice-obstruction, and table-meal settings validate, persist, and roll back transactionally");
   console.log("PASS: Blockly IF / ELSE IF / ELSE execution preserves nesting, waits, pause/resume, and Stop");
   console.log("PASS: Last Snapshot guidance, fallbacks, and portable format version 1 remain compatible");
 }

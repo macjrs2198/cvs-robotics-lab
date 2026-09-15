@@ -26,6 +26,9 @@ function plain(value) {
 function defaultPracticeObstructions() {
   return plain(DEFAULT_PRACTICE_OBSTRUCTIONS);
 }
+function defaultTableMeals() {
+  return { enabled: false, selectedIds: [] };
+}
 const drivetrain = {
   driveSpeed: 50,
   turnSpeed: 30,
@@ -96,6 +99,7 @@ const simulator = browserWindow.VisionSimulator;
       startPose: "ball-default",
       diningStartPose: "table-4-north",
       practiceObstructions: defaultPracticeObstructions(),
+      tableMeals: defaultTableMeals(),
     },
   );
   const target = simulator.takeSnapshot("TARGET");
@@ -178,6 +182,7 @@ const simulator = browserWindow.VisionSimulator;
       startPose: expected.id,
       diningStartPose: expected.id,
       practiceObstructions: defaultPracticeObstructions(),
+      tableMeals: defaultTableMeals(),
     };
     assert.deepEqual(JSON.parse(JSON.stringify(simulator.applySettings(savedSettings))), savedSettings);
 
@@ -312,6 +317,7 @@ const simulator = browserWindow.VisionSimulator;
     startPose: "center-lane-northwest",
     diningStartPose: "center-lane-northwest",
     practiceObstructions: defaultPracticeObstructions(),
+    tableMeals: defaultTableMeals(),
   });
   assert.equal(drivetrain.leftOutput, 0);
   assert.equal(drivetrain.rightOutput, 0);
@@ -323,6 +329,7 @@ const simulator = browserWindow.VisionSimulator;
     startPose: "center-lane-northwest",
     diningStartPose: "center-lane-northwest",
     practiceObstructions: defaultPracticeObstructions(),
+    tableMeals: defaultTableMeals(),
   });
   assert.equal(Object.prototype.hasOwnProperty.call(applied, "motors"), false);
   console.log("PASS: persistent settings include chassis/head but omit runtime motors/detections and setup changes clear transient state");
@@ -518,6 +525,160 @@ const simulator = browserWindow.VisionSimulator;
 }
 
 {
+  simulator.applySettings({
+    scene: "byte-to-bite-dining-room",
+    camera: { mount: "front", height: 12, head: "down" },
+    chassis: { length: 18, width: 18 },
+    startPose: "table-4-north",
+  });
+  assert.deepEqual(plain(simulator.getSettings().tableMeals), defaultTableMeals());
+  assert.deepEqual(plain(simulator.getLiveProjection().meals), []);
+  for (let id = 0; id <= 8; id += 1) {
+    simulator.toggleTableMeal(id);
+    assert.deepEqual(plain(simulator.getSettings().tableMeals.selectedIds), [id]);
+    simulator.setTableMealsEnabled(true);
+    assert.equal(simulator.getLiveProjection().meals.length, 1);
+    assert.equal(simulator.getLiveProjection().meals[0].tableId, id);
+    simulator.toggleTableMeal(id);
+    assert.deepEqual(plain(simulator.getSettings().tableMeals.selectedIds), []);
+    assert.deepEqual(plain(simulator.getLiveProjection().meals), []);
+  }
+  [0, 4, 8].forEach((id) => simulator.toggleTableMeal(id));
+  assert.deepEqual(plain(simulator.getSettings().tableMeals.selectedIds), [0, 4, 8]);
+  assert.deepEqual(plain(simulator.getLiveProjection().meals.map((meal) => meal.tableId)), [0, 4, 8]);
+  [1, 2, 3, 5, 6, 7].forEach((id) => simulator.toggleTableMeal(id));
+  assert.deepEqual(plain(simulator.getSettings().tableMeals.selectedIds), [0, 1, 2, 3, 4, 5, 6, 7, 8]);
+  assert.equal(simulator.getLiveProjection().meals.length, 9);
+  const externalSettings = simulator.getSettings();
+  externalSettings.tableMeals.selectedIds.length = 0;
+  assert.equal(simulator.getSettings().tableMeals.selectedIds.length, 9, "meal IDs must be copied out of persistent settings");
+  simulator.clearTableMeals();
+  assert.equal(simulator.getSettings().tableMeals.enabled, true);
+  assert.deepEqual(plain(simulator.getSettings().tableMeals.selectedIds), []);
+  assert.equal(simulator.getLiveProjection().meals.length, 0);
+  console.log("PASS: all nine existing table IDs toggle individually; empty, mixed, and full selections reconstruct without duplicates");
+}
+
+{
+  const beforeWorld = plain(simulator.getWorldState());
+  const beforeCamera = plain(simulator.getLiveProjection().camera);
+  const beforeSnapshot = simulator.takeSnapshot("FIDUCIAL_IDS");
+  assert.equal(beforeSnapshot.objects.some((object) => object.id === 4), true);
+  const originalObjects = JSON.stringify(beforeSnapshot.objects);
+  const originalPractice = plain(simulator.getSettings().practiceObstructions);
+
+  simulator.toggleTableMeal(4);
+  assert.strictEqual(simulator.getSnapshot(), beforeSnapshot, "a meal edit must not silently refresh a captured dataset");
+  assert.equal(JSON.stringify(simulator.getSnapshot().objects), originalObjects);
+  assert.deepEqual(plain(simulator.getWorldState()), beforeWorld);
+  assert.deepEqual(plain(simulator.getLiveProjection().camera), beforeCamera);
+  assert.deepEqual(plain(simulator.getSettings().practiceObstructions), originalPractice);
+  assert.equal(simulator.getLiveProjection().meals.length, 1);
+  const covered = simulator.takeSnapshot("FIDUCIAL_IDS");
+  assert.equal(covered.objects.some((object) => object.id === 4), false);
+
+  simulator.setTableMealsEnabled(false);
+  assert.deepEqual(plain(simulator.getSettings().tableMeals), { enabled: false, selectedIds: [4] });
+  assert.equal(simulator.getLiveProjection().meals.length, 0);
+  const exposed = simulator.takeSnapshot("FIDUCIAL_IDS");
+  assert.equal(exposed.objects.some((object) => object.id === 4), true);
+  simulator.setTableMealsEnabled(true);
+  assert.equal(simulator.getLiveProjection().meals.length, 1);
+  simulator.toggleTableMeal(4);
+  assert.equal(simulator.getLiveProjection().meals.length, 0);
+  const uncovered = simulator.takeSnapshot("FIDUCIAL_IDS");
+  assert.equal(uncovered.objects.some((object) => object.id === 4), true);
+  console.log("PASS: centered meal hides the genuinely visible tag only on a new snapshot; OFF/ON and removal preserve robot, camera, and selection");
+}
+
+{
+  const configured = simulator.setPracticeObstructions({ fruitClutter: true, roamingRobot: true });
+  assert.equal(configured.practiceObstructions.fruit.length, 4);
+  programStopped = false;
+  simulator.step(0.5);
+  programStopped = true;
+  const before = plain(simulator.getSettings());
+  const world = plain(simulator.getWorldState());
+  const practiceScene = plain(simulator.getLiveProjection().obstructions);
+  const randomized = simulator.randomizeTableMeals();
+  assert.equal(randomized.tableMeals.enabled, true);
+  assert.ok(randomized.tableMeals.selectedIds.length >= 1 && randomized.tableMeals.selectedIds.length <= 8);
+  assert.equal(new Set(randomized.tableMeals.selectedIds).size, randomized.tableMeals.selectedIds.length);
+  assert.deepEqual(plain(randomized.practiceObstructions), before.practiceObstructions);
+  assert.deepEqual(plain(simulator.getLiveProjection().obstructions), practiceScene);
+  assert.deepEqual(plain(simulator.getWorldState()), world);
+  const mealGeometry = plain(simulator.getLiveProjection().meals);
+  const second = simulator.randomizeTableMeals();
+  assert.notDeepEqual(plain(second.tableMeals.selectedIds), randomized.tableMeals.selectedIds);
+  const secondGeometry = plain(simulator.getLiveProjection().meals);
+  simulator.clearTableMeals();
+  assert.deepEqual(plain(simulator.getSettings().practiceObstructions), before.practiceObstructions);
+  assert.deepEqual(plain(simulator.getLiveProjection().obstructions), practiceScene);
+  simulator.randomizeTableMeals();
+  const repeatedGeometry = plain(simulator.getLiveProjection().meals);
+  const repeatedSettings = plain(simulator.getSettings().tableMeals);
+  simulator.resetWorld();
+  assert.deepEqual(plain(simulator.getLiveProjection().meals), repeatedGeometry);
+  assert.deepEqual(plain(simulator.getSettings().tableMeals), repeatedSettings);
+  assert.notDeepEqual(secondGeometry, []);
+  assert.ok(mealGeometry.length >= 1);
+  console.log("PASS: Randomize Meals chooses a changing mixed subset and leaves fruit, roamer, student, and reset configuration independent");
+}
+
+{
+  const originalRandom = vm.runInContext("Math.random", context);
+  context.__mealTestRandom = () => 0;
+  vm.runInContext("Math.random = __mealTestRandom", context);
+  try {
+    simulator.clearTableMeals();
+    const first = simulator.randomizeTableMeals().tableMeals.selectedIds;
+    simulator.setTableMealsEnabled(false);
+    assert.deepEqual(plain(simulator.getSettings().tableMeals.selectedIds), plain(first));
+    const second = simulator.randomizeTableMeals().tableMeals.selectedIds;
+    assert.notDeepEqual(plain(second), plain(first));
+    assert.ok(second.length >= 1 && second.length <= 8);
+  } finally {
+    context.__mealTestOriginalRandom = originalRandom;
+    vm.runInContext("Math.random = __mealTestOriginalRandom", context);
+    delete context.__mealTestOriginalRandom;
+    delete context.__mealTestRandom;
+  }
+  console.log("PASS: Randomize Meals changes even an Off-but-remembered selection under repeatable random draws");
+}
+
+{
+  const beforeSettings = plain(simulator.getSettings());
+  const beforeWorld = plain(simulator.getWorldState());
+  const beforeProjection = plain(simulator.getLiveProjection().meals);
+  const beforeSnapshot = simulator.getSnapshot();
+  const eventsBefore = events.length;
+  assert.throws(() => simulator.normalizeSettings({ tableMeals: { enabled: true, selectedIds: [4, 4] } }), /duplicated/i);
+  assert.throws(() => simulator.normalizeSettings({ tableMeals: { enabled: true, selectedIds: [9] } }), /0.*8/);
+  assert.throws(() => simulator.normalizeSettings({ tableMeals: { enabled: true, selectedIds: [4.5] } }), /integer/i);
+  assert.throws(() => simulator.applySettings({ ...simulator.getSettings(), tableMeals: { enabled: true, selectedIds: [4, 4] } }), /duplicated/i);
+  assert.throws(() => simulator.toggleTableMeal(-1), /integer from 0 through 8/);
+  programStopped = false;
+  assert.throws(() => simulator.toggleTableMeal(0), /Stop the program before changing table meals/);
+  assert.throws(() => simulator.randomizeTableMeals(), /Stop the program before randomizing table meals/);
+  assert.throws(() => simulator.applySettings({ ...simulator.getSettings(), tableMeals: defaultTableMeals() }), /Stop the program before changing table meals/);
+  programStopped = true;
+  assert.deepEqual(plain(simulator.getSettings()), beforeSettings);
+  assert.deepEqual(plain(simulator.getWorldState()), beforeWorld);
+  assert.deepEqual(plain(simulator.getLiveProjection().meals), beforeProjection);
+  assert.strictEqual(simulator.getSnapshot(), beforeSnapshot);
+  assert.equal(events.length, eventsBefore);
+  console.log("PASS: invalid IDs and running edits are rejected before altering project, world, snapshot, or student work");
+}
+
+{
+  assert.match(controllerSource, /diningProjection\.meals\.forEach[\s\S]*?obstructionFaces\(component\)/);
+  assert.match(controllerSource, /layout\.meals\.forEach[\s\S]*?component\.footprint/);
+  assert.match(controllerSource, /tableMealsFieldset\.disabled = !isDining \|\| !isProgramStopped\(\)/);
+  assert.match(controllerSource, /button\.setAttribute\("aria-pressed", String\(occupied\)\)/);
+  console.log("PASS: model component geometry is drawn in both views and table controls expose stopped-only text/pressed state");
+}
+
+{
   simulator.applySettings({});
   const projection = simulator.resetWorld();
   assert.ok(projection.detection);
@@ -529,6 +690,7 @@ const simulator = browserWindow.VisionSimulator;
       startPose: "ball-default",
       diningStartPose: "table-4-north",
       practiceObstructions: defaultPracticeObstructions(),
+      tableMeals: defaultTableMeals(),
   });
   assert.equal(simulator.takeSnapshot().type, "target");
   console.log("PASS: old empty settings safely restore the unchanged ball sandbox");

@@ -32,8 +32,8 @@
         body: "The preview is live, but program readings change only after Take Snapshot. Moving the robot or camera head does not alter captured values. Check Object Exists; in the Dining Room, read Count, then select item 1, 2, and so on. Cut-off, rear-facing, too-small, or obstructed fiducials are omitted.",
       }),
       Object.freeze({
-        heading: "Set a repeatable practice challenge",
-        body: "While stopped in the Dining Room, turn on Fruit Clutter and/or Roaming Robot, then choose Randomize for a new layout. Reset retries the same layout. Props obstruct movement and camera sightlines but are not detected object classes.",
+        heading: "Select repeatable Table Meals",
+        body: "While stopped in the Dining Room, open Table Meals, turn it On, and select table IDs 0–8. Randomize Meals chooses a mixed selection; Clear Meals removes all selections. Off hides meals but remembers the selected tables, and Reset repeats the setup. Meals can hide tabletop fiducials. A missing tag can also result from viewing angle, distance, or another obstruction. Fruit Clutter and Roaming Robot have separate controls and Randomize; they are not detected object classes.",
       }),
       Object.freeze({
         heading: "World View is a debug view",

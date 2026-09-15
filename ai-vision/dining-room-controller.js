@@ -63,6 +63,15 @@
   let roamingRobotToggle = null;
   let randomizeObstructionsButton = null;
   let practiceObstructionsStatus = null;
+  let tableMealsDetails = null;
+  let tableMealsFieldset = null;
+  let tableMealsToggle = null;
+  let tableMealsSummaryState = null;
+  let tableMealsToggleState = null;
+  let tableMealButtons = [];
+  let randomizeMealsButton = null;
+  let clearMealsButton = null;
+  let tableMealsStatus = null;
   let setupStatusElement = null;
   let cameraModeHintElement = null;
   let cameraHeadingElement = null;
@@ -93,6 +102,14 @@
   }
 
   function samePracticeObstructions(left, right) {
+    return JSON.stringify(left) === JSON.stringify(right);
+  }
+
+  function cloneTableMeals(source) {
+    return { enabled: source.enabled, selectedIds: [...source.selectedIds] };
+  }
+
+  function sameTableMeals(left, right) {
     return JSON.stringify(left) === JSON.stringify(right);
   }
 
@@ -210,6 +227,7 @@
       candidate.practiceObstructions,
       { robot: selectedStart, chassis: normalizedChassis },
     );
+    const tableMeals = diningModel.normalizeTableMeals(candidate.tableMeals);
 
     return {
       scene,
@@ -217,7 +235,8 @@
       chassis: normalizedChassis,
       startPose,
       diningStartPose,
-      practiceObstructions
+      practiceObstructions,
+      tableMeals
     };
   }
 
@@ -228,7 +247,8 @@
       chassis: { ...settings.chassis },
       startPose: settings.startPose,
       diningStartPose: settings.diningStartPose,
-      practiceObstructions: clonePracticeObstructions(settings.practiceObstructions)
+      practiceObstructions: clonePracticeObstructions(settings.practiceObstructions),
+      tableMeals: cloneTableMeals(settings.tableMeals)
     };
   }
 
@@ -244,7 +264,8 @@
           chassis: { ...nextSettings.chassis },
           startPose: nextSettings.startPose,
           diningStartPose: nextSettings.diningStartPose,
-          practiceObstructions: clonePracticeObstructions(nextSettings.practiceObstructions)
+          practiceObstructions: clonePracticeObstructions(nextSettings.practiceObstructions),
+          tableMeals: cloneTableMeals(nextSettings.tableMeals)
         }
       }
     }));
@@ -255,6 +276,7 @@
       startPoseId: nextSettings.startPose,
       chassis: nextSettings.chassis,
       practiceObstructions: nextSettings.practiceObstructions,
+      tableMeals: nextSettings.tableMeals,
       camera: {
         mount: nextSettings.camera.mount,
         height: nextSettings.camera.height,
@@ -278,6 +300,9 @@
         nextSettings.practiceObstructions,
       )
     );
+    const tableMealsChanged = Boolean(
+      settings && !sameTableMeals(settings.tableMeals, nextSettings.tableMeals)
+    );
     if (
       dimensionsChanged &&
       window.cvsProgramControl &&
@@ -288,6 +313,9 @@
     }
     if (practiceObstructionsChanged && !isProgramStopped()) {
       throw new Error("Stop the program before changing practice obstructions.");
+    }
+    if (tableMealsChanged && !isProgramStopped()) {
+      throw new Error("Stop the program before changing table meals.");
     }
     const preserveHead = Boolean(applyOptions.preserveHead) && settings && settings.scene === nextSettings.scene;
     const nextHead = preserveHead ? headPreset : nextSettings.camera.head;
@@ -460,6 +488,71 @@
     const next = getSettings();
     next.practiceObstructions = createPracticeScenario(current, nextPracticeSeed(current.seed));
     return applySettings(next, { notify: true, preserveHead: true });
+  }
+
+  function commitTableMeals(candidate) {
+    if (settings.scene !== DINING_SCENE_ID) {
+      throw new Error("Table meals are available only in Dining Room.");
+    }
+    if (!isProgramStopped()) {
+      throw new Error("Stop the program before changing table meals.");
+    }
+    const nextMeals = diningModel.normalizeTableMeals(candidate);
+    if (sameTableMeals(settings.tableMeals, nextMeals)) return getSettings();
+    settings = { ...settings, tableMeals: nextMeals };
+    diningState = { ...diningState, tableMeals: cloneTableMeals(nextMeals) };
+    syncSetupControls();
+    updateCameraView();
+    window.dispatchEvent(new CustomEvent("visionsettingschange", {
+      detail: { settings: getSettings() }
+    }));
+    return getSettings();
+  }
+
+  function setTableMealsEnabled(enabled) {
+    if (typeof enabled !== "boolean") {
+      throw new Error("Table Meals On/Off must be a Boolean value.");
+    }
+    return commitTableMeals({
+      enabled,
+      selectedIds: settings.tableMeals.selectedIds
+    });
+  }
+
+  function toggleTableMeal(tableId) {
+    if (!Number.isInteger(tableId) || tableId < 0 || tableId > 8) {
+      throw new Error("Table Meal ID must be an integer from 0 through 8.");
+    }
+    const ids = new Set(settings.tableMeals.selectedIds);
+    if (ids.has(tableId)) ids.delete(tableId);
+    else ids.add(tableId);
+    return commitTableMeals({ enabled: settings.tableMeals.enabled, selectedIds: [...ids] });
+  }
+
+  function randomizeTableMeals() {
+    if (settings.scene !== DINING_SCENE_ID) {
+      throw new Error("Table meals are available only in Dining Room.");
+    }
+    if (!isProgramStopped()) {
+      throw new Error("Stop the program before randomizing table meals.");
+    }
+    const ids = Array.from({ length: 9 }, (_, index) => index);
+    for (let index = ids.length - 1; index > 0; index -= 1) {
+      const swap = Math.floor(Math.random() * (index + 1));
+      [ids[index], ids[swap]] = [ids[swap], ids[index]];
+    }
+    const count = 1 + Math.floor(Math.random() * 8);
+    let selectedIds = ids.slice(0, count).sort((left, right) => left - right);
+    if (JSON.stringify(settings.tableMeals.selectedIds) === JSON.stringify(selectedIds)) {
+      const replacement = ids.find((id) => !selectedIds.includes(id));
+      if (replacement !== undefined) selectedIds = [...selectedIds.slice(1), replacement].sort((left, right) => left - right);
+      else selectedIds = selectedIds.slice(1);
+    }
+    return commitTableMeals({ enabled: true, selectedIds });
+  }
+
+  function clearTableMeals() {
+    return commitTableMeals({ enabled: settings.tableMeals.enabled, selectedIds: [] });
   }
 
   function getWorldState() {
@@ -732,6 +825,16 @@
     };
   }
 
+  function mealPalette(component, faceIndex) {
+    if (component.kind === "plate") {
+      return { fill: faceIndex === 0 ? "#596168" : "#343a40", stroke: "#a8afb3" };
+    }
+    if (component.kind === "post") {
+      return { fill: faceIndex === 0 ? "#d6b27a" : "#8b704e", stroke: "#f0d6a8" };
+    }
+    return { fill: faceIndex === 0 ? "#6dbb65" : "#3c7645", stroke: "#b9e6a0" };
+  }
+
   function obstructionCountDescription(obstructions) {
     const fruitCount = obstructions.filter((item) => item.kind === "practice-fruit").length;
     const roamingCount = obstructions.filter((item) => item.kind === "roaming-robot").length;
@@ -817,6 +920,23 @@
       });
     });
 
+    diningProjection.meals.forEach((meal) => {
+      meal.components.forEach((component) => {
+        obstructionFaces(component).forEach((points, faceIndex) => {
+          const face = projectWorldPolygon(points, camera);
+          if (!face) return;
+          const palette = mealPalette(component, faceIndex);
+          renderItems.push({
+            ...face,
+            kind: "face",
+            layer: 3,
+            fill: palette.fill,
+            stroke: palette.stroke
+          });
+        });
+      });
+    });
+
     diningProjection.markers.forEach((projection) => {
       if (!projection.allInFront) return;
       const paperProjection = markerCorners(projection.marker, projection.marker.paperSide)
@@ -866,7 +986,7 @@
 
     diningCameraCanvas.setAttribute(
       "aria-label",
-      `Live projected Dining Room camera. ${diningProjection.detections.length} fiducial${diningProjection.detections.length === 1 ? "" : "s"} currently readable. ${obstructionCountDescription(diningProjection.obstructions)} in the scene.`,
+      `Live projected Dining Room camera. ${diningProjection.detections.length} fiducial${diningProjection.detections.length === 1 ? "" : "s"} currently readable. ${diningProjection.meals.length} table meal${diningProjection.meals.length === 1 ? "" : "s"}; ${obstructionCountDescription(diningProjection.obstructions)} in the scene.`,
     );
   }
 
@@ -1017,6 +1137,18 @@
     });
     context.restore();
 
+    layout.meals.forEach((meal) => {
+      meal.components.forEach((component) => {
+        canvasPath(context, component.footprint);
+        const palette = mealPalette(component, 0);
+        context.fillStyle = palette.fill;
+        context.strokeStyle = palette.stroke;
+        context.lineWidth = component.kind === "plate" ? 1.4 : 0.7;
+        context.fill();
+        context.stroke();
+      });
+    });
+
     layout.obstructions.forEach((obstruction) => {
       canvasPath(context, obstruction.footprint);
       const isFruit = obstruction.kind === "practice-fruit";
@@ -1089,7 +1221,7 @@
 
     diningWorldCanvas.setAttribute(
       "aria-label",
-      `Dining Room debug World View. Robot ${layout.robot.length} by ${layout.robot.width} inches; heading ${Math.round(layout.robot.headingDegrees)} degrees; camera ${layout.camera.mount}, ${layout.camera.head}, ${layout.camera.height} inches. ${obstructionCountDescription(layout.obstructions)}. Motion ${motionBlocked ? "blocked" : "clear"}.`,
+      `Dining Room debug World View. Robot ${layout.robot.length} by ${layout.robot.width} inches; heading ${Math.round(layout.robot.headingDegrees)} degrees; camera ${layout.camera.mount}, ${layout.camera.head}, ${layout.camera.height} inches. ${layout.meals.length} table meal${layout.meals.length === 1 ? "" : "s"}; ${obstructionCountDescription(layout.obstructions)}. Motion ${motionBlocked ? "blocked" : "clear"}.`,
     );
   }
 
@@ -1243,6 +1375,23 @@
       practiceMessages.push("The roaming robot could not be placed because space was limited.");
     }
     practiceObstructionsStatus.textContent = practiceMessages.join(" ");
+    tableMealsDetails.hidden = !isDining;
+    tableMealsFieldset.disabled = !isDining || !isProgramStopped();
+    tableMealsToggle.checked = settings.tableMeals.enabled;
+    const mealCount = settings.tableMeals.selectedIds.length;
+    const mealState = settings.tableMeals.enabled ? "On" : "Off";
+    tableMealsSummaryState.textContent = `${mealState} \u00b7 ${mealCount} selected`;
+    tableMealsToggleState.textContent = mealState;
+    tableMealButtons.forEach((button) => {
+      const id = Number(button.dataset.tableId);
+      const occupied = settings.tableMeals.selectedIds.includes(id);
+      button.setAttribute("aria-pressed", String(occupied));
+      button.classList.toggle("is-selected", occupied);
+      button.textContent = `${id} \u00b7 ${occupied ? (settings.tableMeals.enabled ? "Occupied" : "Selected") : "Empty"}`;
+    });
+    tableMealsStatus.textContent = settings.tableMeals.enabled
+      ? `${mealCount} occupied table${mealCount === 1 ? "" : "s"}. RESET repeats this meal arrangement.`
+      : `Table Meals off; ${mealCount} selected table${mealCount === 1 ? "" : "s"} remembered.`;
     cameraModeHintElement.textContent = isDining ? "Projected fiducials" : "Drag target";
     cameraHeadingElement.textContent = isDining ? "Dining Room camera" : "Live Camera";
     worldHeadingElement.textContent = isDining ? "Dining Room / robot map" : "Robot / target map";
@@ -1341,6 +1490,43 @@
     }
   }
 
+  function showTableMealsError(error) {
+    syncSetupControls();
+    tableMealsStatus.textContent = error.message;
+  }
+
+  function handleTableMealsToggle() {
+    try {
+      setTableMealsEnabled(tableMealsToggle.checked);
+    } catch (error) {
+      showTableMealsError(error);
+    }
+  }
+
+  function handleTableMealButton(event) {
+    try {
+      toggleTableMeal(Number(event.currentTarget.dataset.tableId));
+    } catch (error) {
+      showTableMealsError(error);
+    }
+  }
+
+  function handleRandomizeMeals() {
+    try {
+      randomizeTableMeals();
+    } catch (error) {
+      showTableMealsError(error);
+    }
+  }
+
+  function handleClearMeals() {
+    try {
+      clearTableMeals();
+    } catch (error) {
+      showTableMealsError(error);
+    }
+  }
+
   function syncProgramState(state) {
     programStopped = Boolean(state && state.stopped);
     syncSetupControls();
@@ -1433,6 +1619,15 @@
     roamingRobotToggle = document.getElementById("roaming-robot-toggle");
     randomizeObstructionsButton = document.getElementById("randomize-obstructions-button");
     practiceObstructionsStatus = document.getElementById("practice-obstructions-status");
+    tableMealsDetails = document.getElementById("table-meals-details");
+    tableMealsFieldset = document.getElementById("table-meals-fieldset");
+    tableMealsToggle = document.getElementById("table-meals-toggle");
+    tableMealsSummaryState = document.getElementById("table-meals-summary-state");
+    tableMealsToggleState = document.getElementById("table-meals-toggle-state");
+    tableMealButtons = Array.from({ length: 9 }, (_, id) => document.getElementById(`table-meal-${id}-button`));
+    randomizeMealsButton = document.getElementById("randomize-meals-button");
+    clearMealsButton = document.getElementById("clear-meals-button");
+    tableMealsStatus = document.getElementById("table-meals-status");
     setupStatusElement = document.getElementById("setup-status");
     cameraModeHintElement = document.getElementById("camera-mode-hint");
     cameraHeadingElement = document.getElementById("camera-heading");
@@ -1449,6 +1644,9 @@
       cameraHeightInputElement, lookForwardButton, lookDown45Button, lookDownButton,
       practiceObstructionsFieldset, fruitClutterToggle, roamingRobotToggle,
       randomizeObstructionsButton, practiceObstructionsStatus,
+      tableMealsDetails, tableMealsFieldset, tableMealsToggle,
+      tableMealsSummaryState, tableMealsToggleState,
+      ...tableMealButtons, randomizeMealsButton, clearMealsButton, tableMealsStatus,
       setupStatusElement, cameraModeHintElement, cameraHeadingElement,
       worldHeadingElement
     ];
@@ -1475,6 +1673,10 @@
     fruitClutterToggle.addEventListener("change", handlePracticeObstructionsChange);
     roamingRobotToggle.addEventListener("change", handlePracticeObstructionsChange);
     randomizeObstructionsButton.addEventListener("click", handleRandomizeObstructions);
+    tableMealsToggle.addEventListener("change", handleTableMealsToggle);
+    tableMealButtons.forEach((button) => button.addEventListener("click", handleTableMealButton));
+    randomizeMealsButton.addEventListener("click", handleRandomizeMeals);
+    clearMealsButton.addEventListener("click", handleClearMeals);
     if ("ResizeObserver" in window) {
       worldResizeObserver = new ResizeObserver(scheduleWorldSurfaceResize);
       worldResizeObserver.observe(worldStageElement);
@@ -1514,6 +1716,10 @@
     setHeadPreset,
     setPracticeObstructions,
     randomizePracticeObstructions,
+    setTableMealsEnabled,
+    toggleTableMeal,
+    randomizeTableMeals,
+    clearTableMeals,
     syncProgramState,
     getSettings,
     normalizeSettings,

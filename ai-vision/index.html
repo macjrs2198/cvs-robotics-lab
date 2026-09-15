@@ -16,7 +16,7 @@
       href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap"
       rel="stylesheet"
     >
-    <link rel="stylesheet" href="./styles.css?v=6.0">
+    <link rel="stylesheet" href="./styles.css?v=7.0">
     <link rel="stylesheet" href="../shared/controls.css?v=1.0">
     <link rel="stylesheet" href="../shared/help/help-ui.css?v=1.0">
   </head>
@@ -169,6 +169,34 @@
                 </div>
                 <p id="practice-obstructions-status" class="practice-obstructions-status" role="status" aria-live="polite"></p>
               </fieldset>
+              <details id="table-meals-details" class="table-meals" hidden>
+                <summary>Table Meals <span id="table-meals-summary-state" class="table-meals-summary-state">Off &middot; 0 selected</span></summary>
+                <fieldset id="table-meals-fieldset" aria-describedby="table-meals-status" disabled>
+                  <legend>Table Meals setup</legend>
+                  <label class="table-meals-toggle" for="table-meals-toggle">
+                    <input id="table-meals-toggle" type="checkbox">
+                    <span>Table Meals: On / Off</span>
+                    <span id="table-meals-toggle-state" class="table-meals-toggle-state">Off</span>
+                  </label>
+                  <p class="table-meals-prompt">Select occupied tables (World View IDs 0&ndash;8):</p>
+                  <div class="table-meals-grid" role="group" aria-label="Occupied tables in World View row order">
+                    <button id="table-meal-0-button" class="table-meal-button" type="button" data-table-id="0" aria-pressed="false">0 &middot; Empty</button>
+                    <button id="table-meal-1-button" class="table-meal-button" type="button" data-table-id="1" aria-pressed="false">1 &middot; Empty</button>
+                    <button id="table-meal-2-button" class="table-meal-button" type="button" data-table-id="2" aria-pressed="false">2 &middot; Empty</button>
+                    <button id="table-meal-3-button" class="table-meal-button" type="button" data-table-id="3" aria-pressed="false">3 &middot; Empty</button>
+                    <button id="table-meal-4-button" class="table-meal-button" type="button" data-table-id="4" aria-pressed="false">4 &middot; Empty</button>
+                    <button id="table-meal-5-button" class="table-meal-button" type="button" data-table-id="5" aria-pressed="false">5 &middot; Empty</button>
+                    <button id="table-meal-6-button" class="table-meal-button" type="button" data-table-id="6" aria-pressed="false">6 &middot; Empty</button>
+                    <button id="table-meal-7-button" class="table-meal-button" type="button" data-table-id="7" aria-pressed="false">7 &middot; Empty</button>
+                    <button id="table-meal-8-button" class="table-meal-button" type="button" data-table-id="8" aria-pressed="false">8 &middot; Empty</button>
+                  </div>
+                  <div class="table-meals-actions">
+                    <button id="randomize-meals-button" class="table-meals-action" type="button" aria-controls="dining-world-canvas dining-camera-canvas">Randomize Meals</button>
+                    <button id="clear-meals-button" class="table-meals-action" type="button" aria-controls="dining-world-canvas dining-camera-canvas">Clear Meals</button>
+                  </div>
+                  <p id="table-meals-status" class="table-meals-status" role="status" aria-live="polite">Table Meals off; no tables selected.</p>
+                </fieldset>
+              </details>
             </div>
           </section>
 
@@ -321,13 +349,13 @@
     <script src="../shared/blockly/core-toolbox.js?v=1.0"></script>
     <script src="../shared/runtime/program-control.js?v=1.0"></script>
     <script src="../shared/help/help-ui.js?v=1.0"></script>
-    <script src="./help-content.js?v=5.0"></script>
-    <script src="./dining-room-model.js?v=3.0"></script>
+    <script src="./help-content.js?v=6.0"></script>
+    <script src="./dining-room-model.js?v=4.0"></script>
     <script src="./simulator.js?v=3.0"></script>
-    <script src="./dining-room-controller.js?v=4.0"></script>
+    <script src="./dining-room-controller.js?v=5.0"></script>
     <script src="./drivetrain.js?v=2.0"></script>
     <script src="./blocks.js?v=4.0"></script>
     <script src="./layout.js?v=1.0"></script>
-    <script src="./app.js?v=6.0"></script>
+    <script src="./app.js?v=6.1"></script>
   </body>
 </html>

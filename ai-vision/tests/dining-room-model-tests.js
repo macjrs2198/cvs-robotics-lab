@@ -1145,4 +1145,217 @@ function projectionFor(sceneProjection, id) {
   console.log("PASS: low fruit uses its real height, can occlude floor tags, cannot falsely hide elevated wall tags, and supplies shared render geometry");
 }
 
+{
+  assert.deepEqual(model.normalizeTableMeals(), { enabled: false, selectedIds: [] });
+  assert.deepEqual(model.normalizeTableMeals(null), { enabled: false, selectedIds: [] });
+  assert.deepEqual(model.createState().tableMeals, { enabled: false, selectedIds: [] });
+  assert.deepEqual(model.normalizeTableMeals({ enabled: false, selectedIds: [8, 1, 4] }), {
+    enabled: false,
+    selectedIds: [1, 4, 8]
+  });
+  assert.deepEqual(model.normalizeTableMeals({ enabled: true, selectedIds: [] }), {
+    enabled: true,
+    selectedIds: []
+  });
+  [
+    { enabled: "true", selectedIds: [4] },
+    { enabled: true, selectedIds: "4" },
+    { enabled: true, selectedIds: [4, 4] },
+    { enabled: true, selectedIds: [-1] },
+    { enabled: true, selectedIds: [9] },
+    { enabled: true, selectedIds: ["4"] },
+    { enabled: true, selectedIds: [4.5] },
+    { enabled: true, selectedIds: [null] },
+    { enabled: true, selectedIds: [NaN] }
+  ].forEach((invalid) => assert.throws(() => model.normalizeTableMeals(invalid), /Table Meals/));
+
+  const remembered = model.createState({ tableMeals: { enabled: false, selectedIds: [1, 4, 8] } });
+  assert.deepEqual(model.projectScene(remembered).meals, []);
+  assert.deepEqual(model.layoutWorldView(remembered).meals, []);
+  const restored = model.createState({ tableMeals: { ...remembered.tableMeals, enabled: true } });
+  assert.deepEqual(model.projectScene(restored).meals.map((meal) => meal.tableId), [1, 4, 8]);
+  const reset = model.createState({ tableMeals: restored.tableMeals });
+  assert.deepEqual(reset.tableMeals, restored.tableMeals);
+  assert.deepEqual(model.projectScene(reset).meals, model.projectScene(restored).meals);
+  assert.deepEqual(model.applyStartPose(restored, "top-opening-right").tableMeals, restored.tableMeals);
+  console.log("PASS: Table Meals default OFF, strict unique-ID validation, OFF/ON memory, and reset reconstruction");
+}
+
+{
+  const allIds = Array.from({ length: 9 }, (_, id) => id);
+  const none = model.createState({ tableMeals: { enabled: true, selectedIds: [] } });
+  const all = model.createState({ tableMeals: { enabled: true, selectedIds: allIds } });
+  assert.equal(model.projectScene(none).meals.length, 0);
+  const allProjected = model.projectScene(all);
+  const allLayout = model.layoutWorldView(all);
+  assert.deepEqual(allProjected.meals.map((meal) => meal.tableId), allIds);
+  assert.deepEqual(allLayout.meals.map((meal) => meal.tableId), allIds);
+  assert.equal(new Set(allProjected.meals.map((meal) => meal.id)).size, 9);
+  assert.equal(model.config.mealPlateRadius, 4.25);
+  assert.equal(model.config.mealPlateThickness, 0.35);
+  assert.ok(model.config.mealPlateRadius * 2 < model.config.tableSide);
+  assert.ok(model.config.mealPlateRadius < model.config.patternSide / Math.SQRT2,
+    "plate covers interior recognition samples without geometrically engulfing outer pattern corners");
+
+  allProjected.meals.forEach((meal) => {
+    const table = model.scene.tables[meal.tableId];
+    const mapMeal = allLayout.meals[meal.tableId];
+    assert.equal(meal.tableOwnerId, table.id);
+    assert.deepEqual([meal.x, meal.y, meal.z], [table.center.x, table.center.y, table.topZ]);
+    assert.equal(meal.components.length, 5);
+    assert.deepEqual(meal.components.map((component) => component.kind), ["plate", "food", "food", "food", "post"]);
+    assert.equal(meal.components[0].minimumZ, table.topZ);
+    assert.equal(meal.components[0].maximumZ, table.topZ + model.config.mealPlateThickness);
+    assert.ok(meal.components.every((component) => component.maximumZ > component.minimumZ));
+    meal.components.forEach((component, index) => {
+      assert.ok(component.footprint.length >= 10);
+      assert.ok(component.footprint.every((point) =>
+        point.x >= table.bounds.minimumX && point.x <= table.bounds.maximumX &&
+        point.y >= table.bounds.minimumY && point.y <= table.bounds.maximumY
+      ), `meal ${meal.tableId} component ${index} must fit its existing tabletop`);
+      assert.equal(mapMeal.components[index].radius, component.radius);
+      assert.equal(mapMeal.components[index].minimumZ, component.minimumZ);
+      assert.equal(mapMeal.components[index].maximumZ, component.maximumZ);
+      component.footprint.forEach((worldPoint, pointIndex) => {
+        nearlyEqual(mapMeal.components[index].footprint[pointIndex].x,
+          allLayout.width / 2 + worldPoint.x * allLayout.scale);
+        nearlyEqual(mapMeal.components[index].footprint[pointIndex].y,
+          allLayout.height / 2 - worldPoint.y * allLayout.scale);
+      });
+    });
+  });
+  model.scene.tables.forEach((table) => {
+    const single = model.projectScene(model.createState({
+      tableMeals: { enabled: true, selectedIds: [table.markerId] }
+    }));
+    assert.deepEqual(single.meals.map((meal) => meal.tableId), [table.markerId]);
+  });
+  assert.deepEqual(allProjected.obstructions, [], "meals are distinct from floor practice obstructions");
+  console.log("PASS: all nine fixed meal props share tabletop-centered 3D geometry with World View, without overflow or duplicates");
+}
+
+{
+  model.scene.tables.forEach((table) => {
+    const setup = {
+      robot: { x: table.center.x, y: table.center.y + 16, heading: -Math.PI / 2 },
+      camera: { mount: "front", height: 12, head: "down" }
+    };
+    const clean = model.createState(setup);
+    const occupied = model.createState({
+      ...setup,
+      tableMeals: { enabled: true, selectedIds: [table.markerId] }
+    });
+    const hidden = model.createState({
+      ...setup,
+      tableMeals: { enabled: false, selectedIds: [table.markerId] }
+    });
+    assert.ok(model.isPoseValid(setup.robot));
+    assert.equal(projectionFor(model.projectScene(clean), table.markerId).eligible, true);
+    assert.deepEqual(projectionFor(model.projectScene(occupied), table.markerId).rejectionReasons, ["occluded"]);
+    assert.equal(model.detectFiducials(occupied).some((item) => item.id === table.markerId), false);
+    assert.equal(projectionFor(model.projectScene(hidden), table.markerId).eligible, true);
+    assert.equal(model.scene.fiducials[table.markerId].ownerId, table.id,
+      "physical tabletop marker stays in the scene underneath the prop");
+  });
+
+  const distantSetup = {
+    robot: { x: 0, y: -54, heading: Math.PI / 2 },
+    camera: { mount: "front", height: 12, head: "forward" }
+  };
+  const cleanDistant = model.createState(distantSetup);
+  const oneMeal = model.createState({ ...distantSetup, tableMeals: { enabled: true, selectedIds: [4] } });
+  const offSightline = model.createState({ ...distantSetup, tableMeals: { enabled: true, selectedIds: [6] } });
+  const allMeals = model.createState({
+    ...distantSetup,
+    tableMeals: { enabled: true, selectedIds: Array.from({ length: 9 }, (_, id) => id) }
+  });
+  assert.deepEqual(model.detectFiducials(cleanDistant).map((item) => item.id), [0, 2, 4, 9, 10]);
+  assert.deepEqual(model.detectFiducials(oneMeal).map((item) => item.id), [0, 2, 9, 10]);
+  assert.deepEqual(model.detectFiducials(offSightline).map((item) => item.id), [0, 2, 4, 9, 10]);
+  assert.deepEqual(model.detectFiducials(allMeals).map((item) => item.id), [9, 10]);
+  assert.ok(model.detectFiducials(oneMeal).every((item) => item.type === "fiducial"));
+  console.log("PASS: every centered plate defeats its own visible pattern while off-sightline and elevated tags avoid blanket suppression");
+}
+
+{
+  const headings = { front: -Math.PI / 2, rear: Math.PI / 2, left: Math.PI, right: 0 };
+  const views = [
+    { head: "forward", height: 5.5, robotY: 20 },
+    { head: "down45", height: 12, robotY: 20 },
+    { head: "down", height: 12, robotY: 16 },
+    { head: "down", height: 24, robotY: 16 }
+  ];
+  views.forEach((view) => {
+    Object.entries(headings).forEach(([mount, heading]) => {
+      const setup = {
+        robot: { x: 0, y: view.robotY, heading },
+        camera: { mount, height: view.height, head: view.head }
+      };
+      const clean = model.projectScene(model.createState(setup));
+      const occupied = model.projectScene(model.createState({
+        ...setup,
+        tableMeals: { enabled: true, selectedIds: [4] }
+      }));
+      assert.equal(projectionFor(clean, 4).eligible, true, `${mount}/${view.head}/${view.height} clean tag`);
+      assert.deepEqual(projectionFor(occupied, 4).rejectionReasons, ["occluded"],
+        `${mount}/${view.head}/${view.height} plate obstructs recognition pattern`);
+      assert.equal(clean.camera.mount, occupied.camera.mount);
+      assert.equal(clean.camera.head, occupied.camera.head);
+      assert.equal(clean.camera.height, occupied.camera.height);
+      assert.deepEqual(clean.robot, occupied.robot);
+      assert.deepEqual(clean.chassis, occupied.chassis);
+    });
+  });
+  console.log("PASS: actual 0°/45°/60° camera pitch, four mounts, and low/high heights agree with meal occlusion");
+}
+
+{
+  const robot = { x: 18, y: 0, heading: Math.PI / 2 };
+  const clean = model.createState({ robot });
+  const occupied = model.createState({
+    robot,
+    tableMeals: { enabled: true, selectedIds: Array.from({ length: 9 }, (_, id) => id) }
+  });
+  const command = { leftOutput: 20, rightOutput: 20 };
+  const cleanMotion = model.integrateScene(clean, command, 0.5);
+  const mealMotion = model.integrateScene(occupied, command, 0.5);
+  assert.equal(cleanMotion.blocked, false);
+  assert.equal(mealMotion.blocked, false);
+  assert.deepEqual(mealMotion.state.robot, cleanMotion.state.robot,
+    "table meals must not enlarge floor-level collision boundaries or obstruct adjacent lanes");
+  assert.deepEqual(mealMotion.state.tableMeals, occupied.tableMeals,
+    "stationary meal configuration must not be runtime-modified by motion");
+  assert.deepEqual(model.projectScene(mealMotion.state).meals, model.projectScene(occupied).meals);
+  const nextToTable = { robot: { x: 0, y: 7, heading: Math.PI / 2 } };
+  assert.deepEqual(model.collisionForPose({ ...nextToTable, tableMeals: occupied.tableMeals }),
+    model.collisionForPose(nextToTable));
+  console.log("PASS: occupied-table lanes and motion use unchanged table collisions; meals stay stationary");
+}
+
+{
+  const practice = model.createPracticeObstructions(
+    { fruitClutter: true, roamingRobot: true },
+    { seed: 29 }
+  );
+  const combined = model.createState({
+    practiceObstructions: practice,
+    tableMeals: { enabled: true, selectedIds: [1, 4, 8] }
+  });
+  const before = model.projectScene(combined);
+  assert.deepEqual(before.meals.map((meal) => meal.tableId), [1, 4, 8]);
+  assert.equal(before.obstructions.filter((item) => item.kind === "practice-fruit").length, practice.fruit.length);
+  assert.equal(before.obstructions.filter((item) => item.kind === "roaming-robot").length,
+    practice.roamingStart ? 1 : 0);
+  const advanced = model.integrateScene(
+    combined,
+    { leftOutput: 0, rightOutput: 0 },
+    0.25,
+    { advanceRoaming: true }
+  ).state;
+  assert.deepEqual(advanced.tableMeals, combined.tableMeals);
+  assert.deepEqual(advanced.practiceObstructions, combined.practiceObstructions);
+  assert.deepEqual(model.projectScene(advanced).meals, before.meals);
+  console.log("PASS: table meals coexist with seeded fruit and roaming robot without modifying either configuration");
+}
+
 console.log("All dining-room model tests passed.");

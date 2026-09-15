@@ -5,7 +5,7 @@
   const PROGRAM_FORMAT = "cvs-robotics-program";
   const PROGRAM_FORMAT_VERSION = 1;
   const APP_ID = "cvs-ai-vision";
-  const APP_VERSION = "5.0";
+  const APP_VERSION = "5.1";
   const APP_DISPLAY_NAME = "CVS AI Vision";
   const APP_DISPLAY_NAMES = Object.freeze({
     "cvs-ai-vision": APP_DISPLAY_NAME,
