@@ -70,7 +70,6 @@ function bruteForce(input) {
     const time = profiles.reduce((sum, profile, i) => sum + Number(profile.timeSeconds) * counts[i], 0);
     if (time > limit) return;
     const round = scorer.emptyRound();
-    round.buffetQualified = input.buffetQualified === true;
     profiles.forEach((profile, i) => {
       const row = round.locations[profile.location];
       if (profile.mealType) row[profile.mealType] += counts[i];
@@ -160,16 +159,37 @@ async function run() {
   });
   assert.equal(shelfCap.best.counts[0], 7);
 
-  const buffetOff = optimizer.solveSync({profiles: [meal("buffet", "buffet", "salad", 1, 1)]});
-  assert.equal(planScore(buffetOff), 0);
-  assert.match(buffetOff.excluded[0].reason, /qualification|qualified/);
-  const buffetOn = optimizer.solveSync({
+  const buffet = optimizer.solveSync({
     profiles: [meal("buffet", "buffet", "salad", 1, 8)],
-    buffetQualified: true
   });
-  assert.equal(buffetOn.best.counts[0], 3);
-  assert.equal(buffetOn.best.score, 75);
-  assert.ok(buffetOn.best.assumptions.some((item) => /Buffet/.test(item)));
+  assert.equal(buffet.best.counts[0], 3, "three-unit Buffet capacity still constrains the plan");
+  assert.equal(buffet.best.score, 75, "three Buffet salads receive 10+15 each through the shared scorer");
+  assert.equal(buffet.best.resourcesUsed.buffetUnits, 3);
+  assert.equal(buffet.budget.buffetUnits, 3);
+  assert.equal(buffet.excluded.length, 0, "Buffet profiles no longer need a human-qualification planning switch");
+  assert.equal(buffet.best.assumptions.some((item) => /human-confirmed Buffet/.test(item)), false);
+  const buffetPair = optimizer.solveSync({
+    profiles: [meal("buffet-pair", "buffet", "sandwich", 30, 1, {attachedDrink: true})]
+  });
+  assert.equal(planScore(buffetPair), 77, "Buffet sandwich-plus-drink is 50+12+15 once, not double destination points");
+  assert.equal(buffetPair.best.resourcesUsed.plates, 1);
+  assert.equal(buffetPair.best.resourcesUsed.cups, 1);
+  assert.equal(buffetPair.best.resourcesUsed.buffetUnits, 1);
+  const buffetStandalone = optimizer.solveSync({
+    profiles: [{id: "buffet-drink", enabled: true, location: "buffet", mealType: null,
+      attachedDrink: false, standaloneDrink: true, timeSeconds: 10, maxRepeats: 1}]
+  });
+  assert.equal(planScore(buffetStandalone), 19, "Buffet standalone drink is 4+15 once through the shared scorer");
+  assert.equal(buffetStandalone.best.resourcesUsed.cups, 1);
+  for (const obsolete of ["buffetQualified", "disqualified", "suspensions"]) {
+    assert.equal(Object.prototype.hasOwnProperty.call(buffetStandalone.best.round, obsolete), false, `planned rounds should omit obsolete ${obsolete}`);
+  }
+  const legacyBuffetToggle = optimizer.solveSync({
+    profiles: [meal("buffet-legacy", "buffet", "salad", 1, 1)],
+    buffetQualified: "old-value"
+  });
+  assert.equal(planScore(legacyBuffetToggle), 25, "legacy qualification inputs are ignored, not used as a scoring gate");
+  assert.equal(Object.prototype.hasOwnProperty.call(legacyBuffetToggle.best.round, "buffetQualified"), false);
 
   const gardenOnce = optimizer.solveSync({
     profiles: [meal("meal-and-drone", "field", "salad", 20, 2, {includedGarden: ["drone"]})],
@@ -214,7 +234,7 @@ async function run() {
   assert.equal(optimizer.solveSync({budget: {...optimizer.CONSERVATIVE_BUDGET, plates: null}}).status, "invalid");
   assert.equal(optimizer.solveSync({budget: {...optimizer.CONSERVATIVE_BUDGET, plates: true}}).status, "invalid");
   assert.equal(optimizer.solveSync({mode: "typo"}).status, "invalid");
-  assert.equal(optimizer.solveSync({buffetQualified: "true"}).status, "invalid");
+  assert.equal(optimizer.solveSync({buffetQualified: "true"}).status, "optimal", "obsolete qualification input is ignored for compatibility");
   assert.equal(optimizer.solveSync({profiles: [meal("bad-attached", "field", "salad", 1, 1, {attachedDrink: "true"})]}).status, "invalid");
   assert.equal(optimizer.solveSync({profiles: [meal("bad-enabled", "field", "salad", 1, 1, {enabled: "true"})]}).status, "invalid");
   assert.equal(optimizer.solveSync({budget: {...optimizer.CONSERVATIVE_BUDGET, extra: 1}}).status, "invalid");
@@ -243,12 +263,14 @@ async function run() {
     seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
     return seed % max;
   }
-  const destinations = ["field", "shelf", "dining", "qca"];
+  const destinations = ["field", "shelf", "buffet", "dining", "qca"];
   const types = ["salad", "pizza", "sandwich"];
+  let generatedBuffetCases = 0;
   for (let caseIndex = 0; caseIndex < 100; caseIndex += 1) {
     const count = 1 + random(3);
     const profiles = Array.from({length: count}, (_, index) =>
       meal(`case-${caseIndex}-${index}`, destinations[random(destinations.length)], types[random(types.length)], 10 + random(41), 1 + random(3)));
+    if (profiles.some((profile) => profile.location === "buffet")) generatedBuffetCases += 1;
     const input = {
       profiles, availableSeconds: 30 + random(101),
       budget: {...optimizer.CONSERVATIVE_BUDGET, plates: 1 + random(4),
@@ -266,6 +288,7 @@ async function run() {
       assert.ok(actual.best.resourcesUsed[key] <= actual.budget[key], `resource ${key} exceeded in small case ${caseIndex}`);
     }
   }
+  assert.ok(generatedBuffetCases > 0, "independent exhaustive cases must include Buffet without a qualification gate");
 
   let callbackBeforeFinish = false;
   const cooperative = optimizer.createSearch({

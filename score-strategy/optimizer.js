@@ -50,16 +50,15 @@
       };
     }
     return {
-      locations, buffetQualified: false,
+      locations,
       garden: Object.fromEntries(GARDEN.map((id) => [id, false])),
-      disqualified: false, suspensions: 0, practiceCounts: {}
+      practiceCounts: {}
     };
   }
 
   function planToRound(profiles, counts, gardenTasks, gardenSelections, options = {}) {
     const mode = options.mode === "custom" ? "custom" : "byte-to-bite";
     const round = emptyRound(mode);
-    if (mode === "byte-to-bite") round.buffetQualified = options.buffetQualified === true;
     profiles.forEach((profile, index) => {
       const count = counts[index] || 0;
       if (!count) return;
@@ -169,9 +168,6 @@
     if (input && input.mode !== undefined && !["byte-to-bite", "best", "custom"].includes(input.mode)) {
       issues.push("unknown optimizer ruleset mode");
     }
-    if (input && input.buffetQualified !== undefined && typeof input.buffetQualified !== "boolean") {
-      issues.push("Buffet expected qualification must be a boolean");
-    }
     const mode = input && input.mode === "custom" ? "custom" : "byte-to-bite";
     const suppliedAvailable = input && input.availableSeconds !== undefined ? input.availableSeconds : 180;
     const availableTenths = decimalTenths(suppliedAvailable, "down");
@@ -210,10 +206,6 @@
         continue;
       }
       if (source.enabled !== true) { excluded.push({ id, reason: "disabled" }); continue; }
-      if (mode === "byte-to-bite" && source.location === "buffet" && input.buffetQualified !== true) {
-        excluded.push({ id, reason: "Buffet expected qualified is off; result needs human confirmation" });
-        continue;
-      }
       if (source.timeSeconds === "" || source.timeSeconds === null || source.timeSeconds === undefined) {
         excluded.push({ id, reason: "no measured full-cycle time entered" }); continue;
       }
@@ -283,7 +275,6 @@
       availableTenths: availableTenths || 0,
       reserveTenths: reserveTenths || 0,
       usableTenths: availableTenths !== null && reserveTenths !== null ? availableTenths - reserveTenths : 0,
-      buffetQualified: input && input.buffetQualified === true,
       customObjectives,
       scoreOptions,
       scoreRound: input && input.scoreRound,
@@ -423,7 +414,6 @@
           assumptions: [
             "Measured sequential full-cycle times; no routes or parallel work modeled",
             "Ingredient availability is the user's planning budget, not guaranteed ownership",
-            ...(config.buffetQualified && best.resourcesUsed.buffetUnits ? ["Buffet points depend on human-confirmed balance and team side"] : []),
             ...(best.resourcesUsed.diningTables ? ["Dining table availability is a user-entered optimistic assumption"] : [])
           ]
         }

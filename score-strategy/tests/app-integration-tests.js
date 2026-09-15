@@ -16,6 +16,7 @@ function testSourceRoundPersistence() {
   const round = model.emptyRound();
   round.locations.field.sandwich = 1;
   round.locations.field.attachedDrinks = 1;
+  round.disqualified = true;
   round.suspensions = 1;
   const result = model.scoreRound(round, { mode: "best" });
   assert.equal(result.total, 62);
@@ -28,14 +29,21 @@ function testSourceRoundPersistence() {
   const imported = storageApi.create({ storage: memoryStorage(), validateRound: (entry) => app.validateRoundSnapshot(entry, model) });
   imported.importPortable(exportData);
   assert.equal(imported.listRounds()[0].result.total, 62);
-  assert.equal(imported.listRounds()[0].rawInput.suspensions, 1, "suspension log cannot deduct points");
+  assert.equal(imported.listRounds()[0].scoreKind, "practice");
+  assert.equal(imported.listRounds()[0].rawInput.disqualified, undefined, "new practice saves omit legacy referee flags");
+  assert.equal(imported.listRounds()[0].rawInput.suspensions, undefined);
+  assert.equal(imported.listRounds()[0].result.rawTotal, undefined, "new practice saves do not split raw and awarded totals");
   const changed = JSON.parse(exportData);
   changed.rounds[0].result.total = 61;
-  assert.throws(() => imported.importPortable(changed, { replace: true, confirmed: true }), /validation/);
+  assert.throws(() => imported.importPortable(changed, { replace: true, confirmed: true }), /does not match/);
   assert.equal(imported.listRounds()[0].result.total, 62, "failed import cannot rewrite history");
+  const malformed = JSON.parse(exportData);
+  malformed.rounds[0].rawInput.locations.field.sandwich = "not a count";
+  assert.throws(() => imported.importPortable(malformed, { replace: true, confirmed: true }), /does not match/);
+  assert.equal(imported.listRounds()[0].result.total, 62, "malformed new export cannot rewrite history");
 }
 
-function testCustomIsolationAndInvalidFinal() {
+function testCustomIsolationAndBuffetArithmetic() {
   const objectives = [{ id: "custom-marker", name: "Marker", points: 7, maxCount: 2 }];
   const round = model.emptyRound();
   round.practiceCounts["custom-marker"] = 2;
@@ -51,12 +59,20 @@ function testCustomIsolationAndInvalidFinal() {
   assert.equal(model.scoreRound(illegal, { mode: "custom", practiceObjectives: objectives }).valid, false, "hidden BEST points cannot leak into custom");
   const buffet = model.emptyRound();
   buffet.locations.buffet.sandwich = 1;
-  const unverified = model.scoreRound(buffet, { mode: "best" });
-  assert.equal(unverified.valid, false);
-  assert.throws(() => app.makeSavedSnapshot({ round: buffet, result: unverified, mode: "best", model, labels: {}, note: "" }), /validation warnings/);
-  assert.equal(app.parseCount(""), "", "blank direct count remains invalid, not silently zero");
+  const practice = model.scoreRound(buffet, { mode: "best" });
+  assert.equal(practice.valid, true);
+  assert.equal(practice.total, 65);
+  assert.equal(app.validateRoundSnapshot(app.makeSavedSnapshot({ round: buffet, result: practice, mode: "best", model, labels: {}, note: "" }), model), true);
+  assert.equal(app.parseCount(""), 0, "blank direct count contributes zero");
   assert.equal(app.parseCount("-1"), "-1");
   assert.equal(app.parseCount("0"), 0);
+  const typed = model.emptyRound();
+  typed.locations.field.sandwich = 1;
+  typed.locations.field.pizza = "bad paste";
+  assert.equal(model.scoreRound(typed, { mode: "best" }).total, 50, "one malformed field cannot erase another contribution");
+  const clean = app.makeSavedSnapshot({ round: typed, result: model.scoreRound(typed, { mode: "best" }), mode: "best", model, labels: {}, note: "" });
+  assert.equal(clean.rawInput.locations.field.pizza, 0, "new save normalizes malformed text to zero");
+  assert.equal(app.validateRoundSnapshot(clean, model), true);
 }
 
 function testOptimizerScorerAgreementAndTimerIndependence() {
@@ -81,6 +97,6 @@ function testOptimizerScorerAgreementAndTimerIndependence() {
 }
 
 testSourceRoundPersistence();
-testCustomIsolationAndInvalidFinal();
+testCustomIsolationAndBuffetArithmetic();
 testOptimizerScorerAgreementAndTimerIndependence();
 console.log("Score & Strategy app integration tests passed.");

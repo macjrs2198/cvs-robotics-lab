@@ -44,6 +44,18 @@
     return value;
   }
 
+  function nonnegativeInteger(value) {
+    return Number.isFinite(value) && Number.isInteger(value) && value >= 0;
+  }
+
+  // Old awards and referee flags are historical observations. They are not
+  // re-scored or rewritten when the practice-only calculator reads a v1 file.
+  function isLegacyRound(saved) {
+    if (saved.scoreKind === "practice") return false;
+    return ["disqualified", "buffetQualified", "suspensions"].some((key) => Object.prototype.hasOwnProperty.call(saved.rawInput, key)) ||
+      ["awardedTotal", "rawTotal", "needsReview", "status", "disqualified"].some((key) => Object.prototype.hasOwnProperty.call(saved.result, key));
+  }
+
   function validateSavedRound(round, validateRound) {
     if (!plain(round)) fail("INVALID_ROUND", "A saved round must be a JSON object.");
     const saved = cleanJson(round, "Round");
@@ -62,18 +74,24 @@
       }
     }
     if (saved.note !== undefined) shortText(saved.note, "Round note", 10000);
-    const total = saved.result.awardedTotal !== undefined ? saved.result.awardedTotal : saved.result.total;
-    if (!Number.isFinite(total) || !Number.isInteger(total) || total < 0) fail("INVALID_ROUND", "Saved round awarded total must be a nonnegative integer.");
-    if (saved.result.rawTotal !== undefined && (!Number.isFinite(saved.result.rawTotal) || !Number.isInteger(saved.result.rawTotal) || saved.result.rawTotal < 0)) {
-      fail("INVALID_ROUND", "Saved round raw total must be a nonnegative integer.");
+    if (saved.scoreKind !== undefined && saved.scoreKind !== "practice") fail("INVALID_ROUND", "Round score kind is unsupported.");
+    const legacy = isLegacyRound(saved);
+    const recordedTotal = saved.result.awardedTotal !== undefined ? saved.result.awardedTotal : saved.result.total;
+    if (legacy) {
+      if (recordedTotal !== null && !nonnegativeInteger(recordedTotal)) fail("INVALID_ROUND", "Historical recorded total must be a nonnegative integer or null.");
+      if (saved.result.rawTotal !== undefined && saved.result.rawTotal !== null && !nonnegativeInteger(saved.result.rawTotal)) {
+        fail("INVALID_ROUND", "Historical raw subtotal must be a nonnegative integer or null.");
+      }
+    } else {
+      if (!nonnegativeInteger(saved.result.total)) fail("INVALID_ROUND", "Practice score must be a nonnegative integer.");
+      if (saved.result.valid === false) fail("INVALID_ROUND", "A current practice result cannot contain a failed calculation.");
     }
-    if (saved.result.valid !== true || saved.result.needsReview === true || saved.result.status === "needs-review") {
-      fail("UNVERIFIED_ROUND", "An invalid or unresolved round cannot be saved as a verified result.");
-    }
-    if (typeof validateRound === "function") {
+    // This callback checks arithmetic agreement for current saves. Historical
+    // records retain their original award, even if today's practice tally differs.
+    if (!legacy && typeof validateRound === "function") {
       let accepted;
-      try { accepted = validateRound(saved); } catch (error) { fail("UNVERIFIED_ROUND", error && error.message ? error.message : "Round validation failed."); }
-      if (accepted !== true) fail("UNVERIFIED_ROUND", "Round failed scoring-model validation.");
+      try { accepted = validateRound(saved); } catch (error) { fail("INVALID_ROUND", error && error.message ? error.message : "Practice arithmetic check failed."); }
+      if (accepted !== true) fail("INVALID_ROUND", "Saved practice score does not match its entries.");
     }
     return saved;
   }
@@ -128,17 +146,20 @@
 
   function exportRoundsCsv(rounds) {
     if (!Array.isArray(rounds)) fail("INVALID_ROUNDS", "CSV export needs a round list.");
-    const header = ["id", "saved_at", "ruleset_id", "ruleset_version", "team", "driver", "round", "awarded_total", "raw_total", "disqualified", "suspensions", "note", "raw_input_json", "breakdown_json"];
+    const header = ["id", "saved_at", "ruleset_id", "ruleset_version", "team", "driver", "round", "practice_score", "note", "raw_input_json", "breakdown_json", "historical_recorded_total", "historical_raw_subtotal", "historical_disqualified", "historical_suspensions"];
     const rows = [header.map((value) => csvCell(value)).join(",")];
     for (const round of rounds) {
       const saved = validateSavedRound(round);
+      const legacy = isLegacyRound(saved);
       const values = [
-        csvCell(saved.id || ""), csvCell(saved.savedAt || ""), csvCell(saved.rulesetId), csvCell(saved.rulesetVersion),
+        csvCell(saved.id || "", true), csvCell(saved.savedAt || ""), csvCell(saved.rulesetId, true), csvCell(saved.rulesetVersion, true),
         csvCell(saved.labels && saved.labels.team || "", true), csvCell(saved.labels && saved.labels.driver || "", true),
-        csvCell(saved.labels && saved.labels.round || "", true), csvCell(saved.result.awardedTotal !== undefined ? saved.result.awardedTotal : saved.result.total),
-        csvCell(saved.result.rawTotal === undefined ? "" : saved.result.rawTotal), csvCell(!!saved.rawInput.disqualified),
-        csvCell(saved.rawInput.suspensions === undefined ? "" : saved.rawInput.suspensions), csvCell(saved.note || "", true),
-        csvCell(JSON.stringify(saved.rawInput)), csvCell(JSON.stringify(saved.result.breakdown || null)),
+        csvCell(saved.labels && saved.labels.round || "", true), csvCell(legacy ? "" : saved.result.total),
+        csvCell(saved.note || "", true), csvCell(JSON.stringify(saved.rawInput)), csvCell(JSON.stringify(saved.result.breakdown || null)),
+        csvCell(legacy ? (saved.result.awardedTotal !== undefined ? saved.result.awardedTotal : saved.result.total) : ""),
+        csvCell(legacy && saved.result.rawTotal !== undefined ? saved.result.rawTotal : ""),
+        csvCell(legacy ? !!saved.rawInput.disqualified : ""),
+        csvCell(legacy && saved.rawInput.suspensions !== undefined ? saved.rawInput.suspensions : ""),
       ];
       rows.push(values.join(","));
     }
@@ -149,13 +170,15 @@
     if (!plain(input) || input.app !== APP_ID || input.schemaVersion !== SCHEMA_VERSION || input.fileType !== "portable-rounds") {
       fail("INVALID_IMPORT", "This is not a supported CVS Score & Strategy export.");
     }
-    if (Array.isArray(input.planningProfiles) && input.planningProfiles.length > PLANNING_PROFILE_LIMIT) {
+    const planningProfiles = input.planningProfiles === undefined ? [] : input.planningProfiles;
+    const customPreset = input.customPreset === undefined ? null : input.customPreset;
+    if (Array.isArray(planningProfiles) && planningProfiles.length > PLANNING_PROFILE_LIMIT) {
       fail("INVALID_IMPORT", "Import exceeds 30 planning profiles. No profiles were imported or truncated.");
     }
-    if (!Array.isArray(input.rounds) || input.rounds.length > HISTORY_LIMIT || !Array.isArray(input.planningProfiles) || (input.customPreset !== null && !plain(input.customPreset))) {
+    if (!Array.isArray(input.rounds) || input.rounds.length > HISTORY_LIMIT || !Array.isArray(planningProfiles) || (customPreset !== null && !plain(customPreset))) {
       fail("INVALID_IMPORT", "The export has invalid round, preset, or planning data.");
     }
-    return validateState({ ...emptyState(), rounds: input.rounds, customPreset: input.customPreset, planningProfiles: input.planningProfiles }, validators);
+    return validateState({ ...emptyState(), rounds: input.rounds, customPreset, planningProfiles }, validators);
   }
 
   function create(options = {}) {

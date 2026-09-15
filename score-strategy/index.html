@@ -22,7 +22,7 @@
     <main>
       <div class="intro-row">
         <div><p class="eyebrow">ONE ROBOT · ONE ROUND</p><p>Score final match outcomes quickly, or compare complete task cycles against your measured time and resources.</p></div>
-        <div class="source-chip"><strong>Practice scoring · provisional</strong><span id="ruleset-source">2026 BEST Robotics Classic Competition Rules v3.3 · September 10, 2026</span></div>
+        <div class="source-chip"><strong>Practice scoring · arithmetic tally</strong><span id="ruleset-source">2026 BEST Robotics Classic Competition Rules v3.3 · September 10, 2026</span></div>
       </div>
       <p id="status-message" class="status-message" role="status" aria-live="polite"></p>
 
@@ -49,7 +49,7 @@
             <legend>Custom objective</legend>
             <label>Name<input data-objective-field="name" type="text" maxlength="80" placeholder="Objective name"></label>
             <label>Points per completion<input data-objective-field="points" type="number" min="0" max="10000" step="1" value="0"></label>
-            <label>Maximum count<input data-objective-field="maxCount" type="number" min="0" max="1000" step="1" value="1"></label>
+            <label>Planning maximum (optimizer only)<input data-objective-field="maxCount" type="number" min="0" max="1000" step="1" value="1"></label>
             <button type="button" data-remove-objective class="button button--quiet">Remove objective</button>
           </fieldset>
         </template>
@@ -59,12 +59,10 @@
         <form id="scorer-form" novalidate>
           <div class="score-top">
             <section class="total-card" aria-labelledby="total-heading">
-              <p class="eyebrow">PRACTICE ROUND · PROVISIONAL UNTIL VALIDATED</p>
-              <h2 id="total-heading">Total</h2>
+              <p class="eyebrow">LIVE ARITHMETIC TALLY</p>
+              <h2 id="total-heading">Practice Score</h2>
               <output id="score-total" aria-live="polite">0</output><span class="point-unit">points</span>
-              <p id="score-status" class="validation-status" role="status" aria-live="polite">Ready for final-outcome entry.</p>
-              <p id="raw-line" class="raw-line">Raw subtotal: <output id="score-raw">0</output> · DQ sets awarded total to zero.</p>
-              <div id="resource-usage" class="resource-pills"><span>Plates <output id="plates-used">0</output> / 8</span><span>Cups <output id="cups-used">0</output> / 8</span></div>
+              <p id="score-status" class="validation-status" role="status" aria-live="polite">Counts update instantly.</p>
             </section>
             <section class="timer-card" aria-labelledby="timer-heading">
               <p class="eyebrow">INDEPENDENT MATCH CLOCK</p><h2 id="timer-heading">Three-minute timer</h2>
@@ -82,11 +80,11 @@
           </section>
 
           <div id="official-scoring">
-            <div class="section-heading"><div><p class="eyebrow">FINAL PLACEMENT, NOT ACTIONS</p><h2>Count final outcomes</h2></div><p>Each meal or drink belongs to one final location. Attached drinks are counted once as a subset.</p></div>
+            <div class="section-heading"><div><p class="eyebrow">PRACTICE OUTCOMES</p><h2>Count final outcomes</h2></div><p>Enter each meal or drink in one final location. Attached drinks add drink points, not a second location award.</p></div>
             <div id="scorer-locations" class="location-grid">
         <fieldset class="location-card" data-location="field">
           <legend>Robot / In Field</legend>
-          <p class="location-hint">Count final valid outcomes on the robot or in the field. No destination award.</p>
+          <p class="location-hint">Count outcomes on the robot or in the field. No destination award.</p>
           <div class="counter-grid">
           <div class="counter-row">
             <label for="count-field-salad">Salad <span class="rate">10 pts</span></label>
@@ -129,11 +127,11 @@
             </div>
           </div>
           </div>
-          <p id="attached-hint-field" class="subset-hint">Drinks on Meals is a subset of this location’s meals, not another meal count.</p>
+          <p id="attached-hint-field" class="subset-hint">Add drink points for meals here; enter practice counts in any order.</p>
         </fieldset>
         <fieldset class="location-card" data-location="shelf">
           <legend>Warming Shelf</legend>
-          <p class="location-hint">Up to 7 eligible scored units. +5 per meal, paired meal-and-drink, or standalone drink.</p>
+          <p class="location-hint">+5 per meal, paired meal-and-drink, or standalone drink.</p>
           <div class="counter-grid">
           <div class="counter-row">
             <label for="count-shelf-salad">Salad <span class="rate">10 + 5 pts</span></label>
@@ -176,11 +174,11 @@
             </div>
           </div>
           </div>
-          <p id="attached-hint-shelf" class="subset-hint">Drinks on Meals is a subset of this location’s meals, not another meal count.</p>
+          <p id="attached-hint-shelf" class="subset-hint">Add drink points for meals here; enter practice counts in any order.</p>
         </fieldset>
         <fieldset class="location-card" data-location="buffet">
           <legend>Balance Buffet</legend>
-          <p class="location-hint">Up to 3 eligible scored units. +15 requires correct team side, balance, and pivot-only support.</p>
+          <p class="location-hint">+15 per meal, paired meal-and-drink, or standalone drink entered here.</p>
           <div class="counter-grid">
           <div class="counter-row">
             <label for="count-buffet-salad">Salad <span class="rate">10 + 15 pts</span></label>
@@ -223,11 +221,11 @@
             </div>
           </div>
           </div>
-          <p id="attached-hint-buffet" class="subset-hint">Drinks on Meals is a subset of this location’s meals, not another meal count.</p>
+          <p id="attached-hint-buffet" class="subset-hint">Add drink points for meals here; enter practice counts in any order.</p>
         </fieldset>
         <fieldset class="location-card" data-location="dining">
           <legend>Autonomous Dining Room</legend>
-          <p class="location-hint">Valid autonomous placements on distinct unoccupied tables, covering the central 4.25-inch square; at most 8 team plates.</p>
+          <p class="location-hint">Practice count of autonomous plated meals on Dining tables.</p>
           <div class="counter-grid">
           <div class="counter-row">
             <label for="count-dining-salad">Salad <span class="rate">10 + 50 pts</span></label>
@@ -262,11 +260,11 @@
             </div>
           </div>
           </div>
-          <p id="attached-hint-dining" class="subset-hint">Drinks on Meals is a subset of this location’s meals, not another meal count.</p>
+          <p id="attached-hint-dining" class="subset-hint">Add drink points for meals here; enter practice counts in any order.</p>
         </fieldset>
         <fieldset class="location-card" data-location="qca">
           <legend>Quality Check Area (QCA)</legend>
-          <p class="location-hint">Count valid spotter-built outcomes wholly inside the taped boundary. QCA values replace field values.</p>
+          <p class="location-hint">Count QCA practice outcomes inside the taped boundary. QCA values replace field values.</p>
           <div class="counter-grid">
           <div class="counter-row">
             <label for="count-qca-salad">Salad <span class="rate">5 pts</span></label>
@@ -309,7 +307,7 @@
             </div>
           </div>
           </div>
-          <p id="attached-hint-qca" class="subset-hint">Drinks on Meals is a subset of this location’s meals, not another meal count.</p>
+          <p id="attached-hint-qca" class="subset-hint">Add drink points for meals here; enter practice counts in any order.</p>
         </fieldset>
             </div>
             <fieldset id="garden-fields" class="garden-card">
@@ -324,12 +322,6 @@
           <label class="garden-check"><input id="garden-grain" name="garden.grain" data-garden="grain" type="checkbox"><span>Harvest Grain</span><strong>+8</strong></label>
               </div>
             </fieldset>
-            <fieldset id="official-conditions" class="conditions-card">
-              <legend>Eligibility and match notes</legend>
-              <label class="condition-check"><input id="buffet-qualified" type="checkbox"> Confirm Balance Buffet entries are on the correct team side, balanced between tape indicators, and supported only at pivots.</label>
-              <label class="condition-check"><input id="disqualified" type="checkbox"> Disqualified (DQ) · awarded total zero; keep raw scoring details.</label>
-              <label for="suspensions">20-second suspensions (logged; no point deduction)<input id="suspensions" type="number" min="0" step="1" inputmode="numeric" value="0"></label>
-            </fieldset>
           </div>
 
           <section id="custom-counts" class="custom-counts" hidden aria-labelledby="custom-counts-heading">
@@ -337,8 +329,8 @@
             <div id="custom-count-list"></div>
           </section>
 
-          <label class="note-field" for="round-note">Round note<textarea id="round-note" rows="2" maxlength="10000" placeholder="Optional observation or judging note"></textarea></label>
-          <details class="breakdown-panel"><summary>Score breakdown and validation</summary><div id="score-breakdown">Point rates and any warnings appear here as you enter final outcomes.</div></details>
+          <label class="note-field" for="round-note">Round note<textarea id="round-note" rows="2" maxlength="10000" placeholder="Optional practice observation"></textarea></label>
+          <details class="breakdown-panel"><summary>Score breakdown</summary><div id="score-breakdown">Location and Garden subtotals appear as you enter outcomes.</div></details>
           <div class="round-actions">
             <button id="save-round" type="button" class="button">Save Round</button>
             <button id="new-round" type="button" class="button button--secondary">New Round</button>
@@ -357,7 +349,6 @@
           <section class="optimizer-basics">
             <label for="available-seconds">Available seconds<input id="available-seconds" type="number" min="0" max="180" step="0.1" value="180" inputmode="decimal"></label>
             <label for="reserve-seconds">Reserve seconds<input id="reserve-seconds" type="number" min="0" step="0.1" value="0" inputmode="decimal"></label>
-            <label class="condition-check best-optimizer-field"><input id="buffet-expected-qualified" type="checkbox"> Expect qualified Buffet balance and team-side/pivot support (conditional plan)</label>
           </section>
           <details id="resource-budget" class="settings-panel">
             <summary>Resource Budget · conservative planning defaults</summary>
@@ -456,10 +447,10 @@
         <section class="optimizer-output" aria-labelledby="optimizer-results-heading"><div class="section-heading"><h2 id="optimizer-results-heading">Recommendation</h2><p>Only an honestly completed search is labeled “Optimal for this model.”</p></div><div id="optimize-results" role="status" aria-live="polite">Add measured profiles, then run the optimizer.</div><button id="preview-plan" type="button" class="button button--secondary" disabled>Preview in Scorer · planned only</button></section>
       </section>
 
-      <details id="rules-help" class="rules-help"><summary>Rules basis, interpretation, and Help</summary><div>
-        <p><strong>Practice translation; not official referee software.</strong> Basis: 2026 BEST Robotics Classic Competition Rules — Byte to Bite, v3.3, September 10, 2026, sections 1.4.4–1.4.5 (p.16), 3.3–3.7 (pp.24–38), Table 3.7 (pp.37–38), and Appendices D/E (pp.64–68). Scoring Summary is an extract of pp.34–38. Credit: BEST Robotics. No later Q&amp;A or revision has been checked.</p>
-        <p>Count each valid meal/drink in one final location. Shelf/qualified Buffet location awards are translated to apply once to a meal, standalone drink, or pair, per the express drink/combination notes. Buffet qualification, Dining autonomy/unoccupied table, QCA boundary, and meal validity are judged by the human scorer; unresolved cases need review, not automatic fallback. Suspensions are lost operating time, not point deductions.</p>
-        <p>The optimizer assumes sequential full cycles, up to 30 user-entered planning profiles, measured timings and availability, and no opponent/route model. It cannot certify a physical match outcome. Local history and drafts stay on this device; export JSON for a portable backup or CSV for analysis. <a href="./RULES_NOTES.md">Read concise rules and modeling notes</a>.</p>
+      <details id="rules-help" class="rules-help"><summary>Practice scoring and Help</summary><div>
+        <p><strong>Practice translation, not an official score.</strong> Point rates come from the supplied 2026 BEST Robotics Classic Competition Rules — Byte to Bite, v3.3, September 10, 2026, Table 3.7 (pp.37–38). Credit: BEST Robotics. No later Q&amp;A or revision has been incorporated.</p>
+        <p>Enter final meal and drink counts by location. The Practice Score is their arithmetic tally plus completed Garden objectives; Buffet entries count when entered. A drink on a meal adds drink points but does not create another shelf or Buffet location bonus. Blank counts contribute zero. The timer never locks scoring.</p>
+        <p>The optimizer is a separate planning tool using your measured full-cycle times, resources, and repeat limits. It is not a guaranteed match result. History and drafts stay on this device; export JSON for backup or CSV for analysis. <a href="./RULES_NOTES.md">Read concise rules and modeling notes</a>.</p>
       </div></details>
     </main>
     <footer class="app-footer"><span>CVS Robotics Lab · browser-local practice tools</span><a href="../">Back to launcher</a></footer>

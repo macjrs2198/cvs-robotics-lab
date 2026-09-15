@@ -32,6 +32,7 @@
 
   function parseCount(value) {
     const text = String(value).trim();
+    if (text === "") return 0;
     if (!/^\d+$/.test(text)) return value;
     const number = Number(text);
     return Number.isSafeInteger(number) ? number : value;
@@ -56,24 +57,29 @@
   function scoreOptions(mode, objectives) { return mode === CUSTOM_MODE ? { mode: CUSTOM_MODE, practiceObjectives: objectives } : { mode: SOURCE_MODE }; }
 
   function validateRoundSnapshot(snapshot, model) {
-    if (!snapshot || !snapshot.result || snapshot.result.valid !== true || !Number.isSafeInteger(snapshot.result.total)) return false;
+    if (!snapshot || snapshot.scoreKind !== "practice" || !snapshot.result || snapshot.result.valid !== true || !Number.isSafeInteger(snapshot.result.total)) return false;
     let options;
     if (snapshot.rulesetId === model.RULESET_ID && snapshot.rulesetVersion === model.RULESET_VERSION) options = { mode: SOURCE_MODE };
     else if (snapshot.rulesetId === CUSTOM_ID && snapshot.rulesetVersion === CUSTOM_VERSION && snapshot.customPreset && Array.isArray(snapshot.customPreset.objectives)) {
       options = { mode: CUSTOM_MODE, practiceObjectives: snapshot.customPreset.objectives };
     } else return false;
+    if (JSON.stringify(canonical(model.normalizeRound(snapshot.rawInput))) !== JSON.stringify(canonical(snapshot.rawInput))) return false;
     const recalculated = model.scoreRound(snapshot.rawInput, options);
-    return recalculated.valid === true && recalculated.total === snapshot.result.total && recalculated.rawTotal === snapshot.result.rawTotal &&
+    return recalculated.valid === true && recalculated.total === snapshot.result.total &&
       JSON.stringify(canonical(recalculated.breakdown)) === JSON.stringify(canonical(snapshot.result.breakdown));
   }
 
   function makeSavedSnapshot({ round, result, mode, model, labels, note, customPreset, planned = false }) {
-    if (!result || result.valid !== true || !Number.isSafeInteger(result.total)) throw new Error("Correct validation warnings before saving this round.");
+    if (!result || result.valid !== true || !Number.isSafeInteger(result.total)) throw new Error("This practice tally cannot be saved until its numeric setup is usable.");
+    const cleanRound = model.normalizeRound(round);
+    const cleanResult = model.scoreRound(cleanRound, scoreOptions(mode, customPreset && customPreset.objectives));
+    if (!cleanResult.valid || cleanResult.total !== result.total) throw new Error("Saved practice tally would differ from the visible score.");
     return {
+      scoreKind: "practice",
       rulesetId: mode === CUSTOM_MODE ? CUSTOM_ID : model.RULESET_ID,
       rulesetVersion: mode === CUSTOM_MODE ? CUSTOM_VERSION : model.RULESET_VERSION,
-      rawInput: cloneJson(round),
-      result: cloneJson(result),
+      rawInput: cloneJson(cleanRound),
+      result: { valid: true, total: cleanResult.total, breakdown: cloneJson(cleanResult.breakdown), resources: cloneJson(cleanResult.resources) },
       labels: cloneJson(labels),
       note: String(note || ""),
       planned: !!planned,
@@ -135,14 +141,11 @@
           }
         }
         for (const key of GARDEN_KEYS) round.garden[key] = checkbox(`garden-${key}`);
-        round.buffetQualified = checkbox("buffet-qualified");
       } else {
         round.practiceCounts = {};
         const list = element("custom-count-list");
         if (list) for (const input of list.querySelectorAll("[data-practice-count]")) round.practiceCounts[input.dataset.practiceCount] = parseCount(input.value);
       }
-      round.disqualified = checkbox("disqualified");
-      round.suspensions = parseCount(read("suspensions"));
       return round;
     }
 
@@ -163,23 +166,20 @@
     function renderScore() {
       const round = collectRound();
       scoreResult = model.scoreRound(round, scoreOptions(mode, objectives()));
-      write("score-total", scoreResult.valid ? scoreResult.total : "—");
-      write("score-raw", scoreResult.valid ? scoreResult.rawTotal : "—");
-      write("score-status", scoreResult.valid ? (planned ? "PLANNED practice projection — not a completed round" : "Practice score — human qualification still required") : `Needs review: ${scoreResult.issues.map((issue) => issue.message).join("; ")}`);
-      write("plates-used", scoreResult.resources ? scoreResult.resources.plates : "—");
-      write("cups-used", scoreResult.resources ? scoreResult.resources.cups : "—");
+      write("score-total", Number.isSafeInteger(scoreResult.total) ? scoreResult.total : 0);
+      write("score-status", planned ? "PLANNED practice projection — not a completed round" : scoreResult.valid ? "Practice Score · counts update instantly" : "Practice Score updates while editing; check objective setup before saving");
       const breakdown = element("score-breakdown");
       if (breakdown) {
-        if (!scoreResult.valid) breakdown.textContent = "Correct warnings to see a verified breakdown.";
+        if (!scoreResult.valid) breakdown.textContent = "Check the numeric objective setup to save this practice tally.";
         else if (mode === CUSTOM_MODE) breakdown.textContent = `Custom objectives: ${scoreResult.breakdown.practiceSubtotal} points. No BEST game points are included.`;
         else {
           const parts = model.LOCATION_IDS.map((id) => `${id}: ${scoreResult.breakdown.locations[id].subtotal}`).join(" · ");
           const garden = Object.values(scoreResult.breakdown.garden).reduce((sum, item) => sum + item.subtotal, 0);
-          breakdown.textContent = `${parts} · Garden: ${garden} · Raw: ${scoreResult.rawTotal}`;
+          breakdown.textContent = `${parts} · Garden: ${garden}`;
         }
       }
       const save = element("save-round");
-      if (save) save.disabled = !scoreResult.valid || !storage;
+      if (save) save.disabled = !storage || !scoreResult.valid;
       return scoreResult;
     }
 
@@ -202,9 +202,6 @@
         if (input) input.value = safeRound.locations && safeRound.locations[location] && safeRound.locations[location][key] !== undefined ? safeRound.locations[location][key] : 0;
       }
       for (const key of GARDEN_KEYS) if (element(`garden-${key}`)) element(`garden-${key}`).checked = !!(safeRound.garden && safeRound.garden[key]);
-      if (element("buffet-qualified")) element("buffet-qualified").checked = !!safeRound.buffetQualified;
-      if (element("disqualified")) element("disqualified").checked = !!safeRound.disqualified;
-      if (element("suspensions")) element("suspensions").value = safeRound.suspensions === undefined ? 0 : safeRound.suspensions;
       for (const key of ["team", "driver", "round"]) if (element(`${key}-label`)) element(`${key}-label`).value = labels[key] || "";
       if (element("round-note")) element("round-note").value = note || "";
       renderCustomCountRows(safeRound.practiceCounts || {});
@@ -239,8 +236,6 @@
       mode = next;
       if (element("ruleset-select")) element("ruleset-select").value = modeToValue(next, model);
       if (element("official-scoring")) element("official-scoring").hidden = next === CUSTOM_MODE;
-      if (element("resource-usage")) element("resource-usage").hidden = next === CUSTOM_MODE;
-      if (element("raw-line")) element("raw-line").hidden = next === CUSTOM_MODE;
       if (element("practice-settings")) element("practice-settings").hidden = next !== CUSTOM_MODE;
       if (element("custom-counts")) element("custom-counts").hidden = next !== CUSTOM_MODE;
       if (element("resource-budget")) element("resource-budget").hidden = next === CUSTOM_MODE;
@@ -287,7 +282,7 @@
       for (const item of objectives()) {
         const row = doc.createElement("div");
         const label = doc.createElement("label");
-        label.textContent = `${item.name} — ${item.points} points each, max ${item.maxCount}`;
+        label.textContent = `${item.name} — ${item.points} points each`;
         const input = doc.createElement("input");
         input.type = "number"; input.min = "0"; input.step = "1"; input.value = values[item.id] === undefined ? 0 : values[item.id];
         input.dataset.practiceCount = item.id; input.id = `practice-count-${item.id}`;
@@ -303,7 +298,7 @@
       const before = collectRound().practiceCounts;
       const updated = { name: "Custom Practice", objectives: readObjectives() };
       const check = model.scoreRound(model.emptyRound(), scoreOptions(CUSTOM_MODE, updated.objectives));
-      if (!check.valid) { status(`Custom setup needs review: ${check.issues.map((item) => item.message).join("; ")}`, true); return false; }
+      if (!check.valid) { status(`Custom objective setup is not usable: ${check.issues.map((item) => item.message).join("; ")}`, true); return false; }
       customPreset = updated;
       if (storage) try { storage.setCustomPreset(updated); } catch (error) { status(error.message, true); }
       renderCustomCountRows(before);
@@ -409,7 +404,6 @@
         reserveSeconds: element("reserve-seconds") ? read("reserve-seconds") : "0",
         profiles: collectProfiles(),
         budget: collectBudget(),
-        buffetQualified: checkbox("buffet-expected-qualified"),
         gardenTasks: mode === CUSTOM_MODE ? [] : GARDEN_KEYS.map((id) => ({ id, enabled: checkbox(`garden-opt-${id}`), timeSeconds: read(`garden-time-${id}`) })),
         scoreOptions: scoreOptions(mode, objectives()),
         scoreRound: model.scoreRound,
@@ -479,7 +473,9 @@
         const row = doc.createElement("li");
         const title = doc.createElement("span");
         const saved = Number.isFinite(Date.parse(round.savedAt)) ? new Date(round.savedAt).toLocaleString() : "Saved round";
-        title.textContent = `${saved} · ${round.labels && round.labels.team || "Team"} · ${round.result.total} points${round.planned ? " · PLANNED" : ""}`;
+        const recorded = round.result.awardedTotal !== undefined ? round.result.awardedTotal : round.result.total;
+        const scoreLabel = Number.isSafeInteger(recorded) ? `${recorded} points` : "unresolved result";
+        title.textContent = `${saved} · ${round.labels && round.labels.team || "Team"} · ${round.scoreKind === "practice" ? scoreLabel : `historical record: ${scoreLabel}`}${round.planned ? " · PLANNED" : ""}`;
         const load = doc.createElement("button"); load.type = "button"; load.textContent = "Load"; load.dataset.loadRound = round.id;
         const remove = doc.createElement("button"); remove.type = "button"; remove.textContent = "Remove"; remove.dataset.removeRound = round.id;
         row.append(title, load, remove);
@@ -540,8 +536,6 @@
     renderCustomCountRows();
     if (element("ruleset-select")) element("ruleset-select").value = modeToValue(mode, model);
     if (element("official-scoring")) element("official-scoring").hidden = mode === CUSTOM_MODE;
-    if (element("resource-usage")) element("resource-usage").hidden = mode === CUSTOM_MODE;
-    if (element("raw-line")) element("raw-line").hidden = mode === CUSTOM_MODE;
     if (element("practice-settings")) element("practice-settings").hidden = mode !== CUSTOM_MODE;
     if (element("custom-counts")) element("custom-counts").hidden = mode !== CUSTOM_MODE;
     if (element("resource-budget")) element("resource-budget").hidden = mode === CUSTOM_MODE;
@@ -567,7 +561,7 @@
     });
     const scorerForm = element("scorer-form");
     if (scorerForm) for (const type of ["input", "change"]) scorerForm.addEventListener(type, (event) => {
-      if (event.target.matches('[data-count], [data-garden], #buffet-qualified, #disqualified, #suspensions')) markDirty();
+      if (event.target.matches('[data-count], [data-garden]')) markDirty();
     });
     for (const id of ["team-label", "driver-label", "round-label", "round-note"]) if (element(id)) element(id).addEventListener("input", markDirty);
 
@@ -591,7 +585,7 @@
 
     if (element("save-round")) element("save-round").addEventListener("click", () => {
       const result = renderScore();
-      if (!result.valid) { status("Correct score warnings before saving a verified practice round.", true); return; }
+      if (!result.valid) { status("Check the numeric objective setup before saving this practice round.", true); return; }
       try {
         const snapshot = makeSavedSnapshot({ round: collectRound(), result, mode, model, labels: collectLabels(), note: read("round-note"), customPreset, planned });
         storageCall(() => storage.saveRound(snapshot));
@@ -614,7 +608,7 @@
         else {
           const draft = { app: storageApi.APP_ID, schemaVersion: storageApi.SCHEMA_VERSION, fileType: "unsaved-draft", rulesetId: currentId(), rawInput: collectRound(), labels: collectLabels(), note: read("round-note"), customPreset: mode === CUSTOM_MODE ? customPreset : null, planningProfiles: collectProfiles() };
           download("cvs-score-unsaved-draft.json", "application/json", JSON.stringify(draft, null, 2));
-          status("Unsaved draft exported as a local backup. It is not a verified saved-round history entry.");
+          status("Unsaved draft exported as a local backup. It is not a saved-round history entry.");
         }
       }
       catch (error) { status(error.message, true); }
@@ -643,7 +637,7 @@
           selectMode(parsed.rulesetId, { restoreDraft: false });
           fillRound(parsed.rawInput, parsed.labels || {}, parsed.note || "");
           dirty = true;
-          status("Unsaved draft restored for editing. Its score must pass current validation before saving.");
+          status("Unsaved draft restored for editing. Its practice tally is ready to update and save.");
           return;
         }
         if (!storage) throw new Error("Browser-local storage is unavailable; only an unsaved draft can be restored in this session.");

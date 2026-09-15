@@ -117,16 +117,12 @@ textarea { resize: vertical; }
   border-radius: 12px;
   background: linear-gradient(145deg,rgba(21,42,34,.94),rgba(10,21,18,.94));
 }
-.total-card { border-color: rgba(112,225,245,.42); }
+.total-card { border-color: rgba(69,224,127,.52); }
 .timer-card { border-color: rgba(255,200,87,.42); }
 .total-card h2,.timer-card h2 { font-size: 1.25rem; }
-#score-total { display: inline-block; margin: 8px 6px 0 0; color: var(--cyan); font: 700 clamp(3.2rem,7vw,5.5rem)/1 var(--mono); }
+#score-total { display: inline-block; margin: 8px 6px 0 0; color: var(--green); font: 700 clamp(3.2rem,7vw,5.5rem)/1 var(--mono); }
 .point-unit { color: var(--muted); font-size: .8rem; }
 .validation-status { min-height: 1.4rem; margin: 8px 0 0; color: var(--green); font-weight: 800; }
-.validation-status.is-warning,.validation-status.is-invalid { color: var(--amber); }
-.raw-line { margin: 7px 0; color: var(--muted); font-size: .76rem; }
-.resource-pills { display: flex; flex-wrap: wrap; gap: 7px; }
-.resource-pills span { padding: 4px 7px; color: var(--ink); border: 1px solid var(--line); border-radius: 999px; font: 700 .68rem var(--mono); }
 .timer-display { display: block; margin: 5px 0; color: var(--amber); font: 700 clamp(3.2rem,7vw,5.5rem)/1 var(--mono); font-variant-numeric: tabular-nums; }
 .timer-state { min-height: 1.3rem; margin: 5px 0 10px; color: var(--muted); font-size: .8rem; font-weight: 700; }
 .timer-state.is-finished { color: var(--amber); }
