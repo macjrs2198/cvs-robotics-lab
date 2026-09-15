@@ -108,13 +108,22 @@ h1 {
   transform: translateY(-4px);
   border-color: var(--line-bright);
   background: linear-gradient(145deg, rgba(27, 55, 44, 0.98), rgba(11, 24, 20, 0.98));
-  outline: none;
 }
+
+.launch-card:focus-visible { outline: 3px solid var(--cyan); outline-offset: 3px; }
 
 .launch-card--vision { --accent: var(--cyan); }
 .launch-card--digital { --accent: var(--green); }
 .launch-card--analog { --accent: var(--amber); }
 .launch-card--rumble { --accent: #ff7a32; }
+.launch-card--strategy {
+  --accent: #b9a6ff;
+  min-height: 174px;
+  grid-column: 1 / -1;
+}
+
+.launch-card--strategy h2 { margin-top: 14px; }
+.launch-card--strategy .launch-action { padding-top: 16px; }
 
 .card-index {
   color: var(--accent);
@@ -159,6 +168,7 @@ h1 {
   .launcher-shell { align-content: start; }
   .launch-grid { grid-template-columns: 1fr; }
   .launch-card { min-height: 180px; }
+  .launch-card--strategy { grid-column: 1; }
   .launcher-footer { flex-direction: column; }
 }
 
@@ -170,4 +180,9 @@ h1 {
 
 @media (pointer: coarse) {
   .launch-card { min-height: 200px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .launch-card { transition: none; }
+  .launch-card:hover,.launch-card:focus-visible { transform: none; }
 }

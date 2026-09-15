@@ -1,0 +1,473 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Practice Byte to Bite match scoring, a three-minute timer, and a task-time strategy optimizer for CVS Robotics Lab.">
+  <title>CVS Score &amp; Strategy · CVS Robotics Lab</title>
+  <link rel="icon" href="../assets/stormy.png" type="image/png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="app-header">
+      <a class="brand" href="../" aria-label="Back to CVS Robotics Lab"><img src="../assets/stormy.png" alt="" aria-hidden="true"><span>CVS Robotics Lab</span></a>
+      <div class="header-title"><p class="eyebrow">BYTE TO BITE · PRACTICE TOOLS</p><h1>CVS Score &amp; Strategy</h1></div>
+      <a class="return-link" href="../">Return to lab <span aria-hidden="true">↗</span></a>
+    </header>
+
+    <main>
+      <div class="intro-row">
+        <div><p class="eyebrow">ONE ROBOT · ONE ROUND</p><p>Score final match outcomes quickly, or compare complete task cycles against your measured time and resources.</p></div>
+        <div class="source-chip"><strong>Practice scoring · provisional</strong><span id="ruleset-source">2026 BEST Robotics Classic Competition Rules v3.3 · September 10, 2026</span></div>
+      </div>
+      <p id="status-message" class="status-message" role="status" aria-live="polite"></p>
+
+      <section class="mode-controls" aria-label="Ruleset and calculator">
+        <label for="ruleset-select">Ruleset
+          <select id="ruleset-select">
+            <option value="best-2026-v3.3-sep10">Byte to Bite · supplied v3.3</option>
+            <option value="custom-practice-v1">Custom Practice · your objectives</option>
+          </select>
+        </label>
+        <div class="tabs" role="tablist" aria-label="Calculator modes">
+          <button id="tab-scorer" type="button" role="tab" aria-controls="panel-scorer" aria-selected="true" tabindex="0">Score a Round</button>
+          <button id="tab-optimizer" type="button" role="tab" aria-controls="panel-optimizer" aria-selected="false" tabindex="-1">Optimize a Round</button>
+        </div>
+      </section>
+
+      <details id="practice-settings" class="settings-panel" hidden>
+        <summary>Custom Practice settings</summary>
+        <p>Create additive, named objectives for a separate practice ruleset. These do not change the supplied Byte to Bite rates or historical rounds.</p>
+        <div id="practice-objectives" class="practice-objectives"></div>
+        <button id="add-practice-objective" type="button" class="button button--secondary">Add objective</button>
+        <template id="practice-objective-template">
+          <fieldset class="objective-row" data-objective>
+            <legend>Custom objective</legend>
+            <label>Name<input data-objective-field="name" type="text" maxlength="80" placeholder="Objective name"></label>
+            <label>Points per completion<input data-objective-field="points" type="number" min="0" max="10000" step="1" value="0"></label>
+            <label>Maximum count<input data-objective-field="maxCount" type="number" min="0" max="1000" step="1" value="1"></label>
+            <button type="button" data-remove-objective class="button button--quiet">Remove objective</button>
+          </fieldset>
+        </template>
+      </details>
+
+      <section id="panel-scorer" role="tabpanel" aria-labelledby="tab-scorer">
+        <form id="scorer-form" novalidate>
+          <div class="score-top">
+            <section class="total-card" aria-labelledby="total-heading">
+              <p class="eyebrow">PRACTICE ROUND · PROVISIONAL UNTIL VALIDATED</p>
+              <h2 id="total-heading">Total</h2>
+              <output id="score-total" aria-live="polite">0</output><span class="point-unit">points</span>
+              <p id="score-status" class="validation-status" role="status" aria-live="polite">Ready for final-outcome entry.</p>
+              <p id="raw-line" class="raw-line">Raw subtotal: <output id="score-raw">0</output> · DQ sets awarded total to zero.</p>
+              <div id="resource-usage" class="resource-pills"><span>Plates <output id="plates-used">0</output> / 8</span><span>Cups <output id="cups-used">0</output> / 8</span></div>
+            </section>
+            <section class="timer-card" aria-labelledby="timer-heading">
+              <p class="eyebrow">INDEPENDENT MATCH CLOCK</p><h2 id="timer-heading">Three-minute timer</h2>
+              <output id="timer-display" class="timer-display" role="timer" aria-live="off">3:00</output>
+              <p id="timer-state" class="timer-state" role="status" aria-live="polite">Ready · scoring stays editable at 0:00</p>
+              <div class="timer-actions"><button id="timer-start" type="button" class="button">Start</button><button id="timer-pause" type="button" class="button button--secondary" disabled>Pause</button><button id="timer-reset" type="button" class="button button--quiet">Reset Timer</button></div>
+              <label class="sound-toggle"><input id="timer-sound" type="checkbox"> Sound at finish (optional, after interaction)</label>
+            </section>
+          </div>
+
+          <section class="round-labels" aria-label="Optional round labels">
+            <label for="team-label">Team<input id="team-label" name="team" type="text" maxlength="200" placeholder="Optional team"></label>
+            <label for="driver-label">Driver<input id="driver-label" name="driver" type="text" maxlength="200" placeholder="Optional driver"></label>
+            <label for="round-label">Round<input id="round-label" name="round" type="text" maxlength="200" placeholder="Optional round"></label>
+          </section>
+
+          <div id="official-scoring">
+            <div class="section-heading"><div><p class="eyebrow">FINAL PLACEMENT, NOT ACTIONS</p><h2>Count final outcomes</h2></div><p>Each meal or drink belongs to one final location. Attached drinks are counted once as a subset.</p></div>
+            <div id="scorer-locations" class="location-grid">
+        <fieldset class="location-card" data-location="field">
+          <legend>Robot / In Field</legend>
+          <p class="location-hint">Count final valid outcomes on the robot or in the field. No destination award.</p>
+          <div class="counter-grid">
+          <div class="counter-row">
+            <label for="count-field-salad">Salad <span class="rate">10 pts</span></label>
+            <div class="counter-stepper">
+              <button type="button" data-step="-1" data-target="count-field-salad" aria-label="Subtract one Salad in Robot / In Field">−</button>
+              <input id="count-field-salad" name="field.salad" data-location="field" data-count="salad" type="number" min="0" step="1" inputmode="numeric" value="0">
+              <button type="button" data-step="1" data-target="count-field-salad" aria-label="Add one Salad in Robot / In Field">+</button>
+            </div>
+          </div>
+          <div class="counter-row">
+            <label for="count-field-pizza">Pizza <span class="rate">30 pts</span></label>
+            <div class="counter-stepper">
+              <button type="button" data-step="-1" data-target="count-field-pizza" aria-label="Subtract one Pizza in Robot / In Field">−</button>
+              <input id="count-field-pizza" name="field.pizza" data-location="field" data-count="pizza" type="number" min="0" step="1" inputmode="numeric" value="0">
+              <button type="button" data-step="1" data-target="count-field-pizza" aria-label="Add one Pizza in Robot / In Field">+</button>
+            </div>
+          </div>
+          <div class="counter-row">
+            <label for="count-field-sandwich">Sandwich <span class="rate">50 pts</span></label>
+            <div class="counter-stepper">
+              <button type="button" data-step="-1" data-target="count-field-sandwich" aria-label="Subtract one Sandwich in Robot / In Field">−</button>
+              <input id="count-field-sandwich" name="field.sandwich" data-location="field" data-count="sandwich" type="number" min="0" step="1" inputmode="numeric" value="0">
+              <button type="button" data-step="1" data-target="count-field-sandwich" aria-label="Add one Sandwich in Robot / In Field">+</button>
+            </div>
+          </div>
+          <div class="counter-row">
+            <label for="count-field-attachedDrinks">Drinks on Meals <span class="rate">+12 pts</span></label>
+            <div class="counter-stepper">
+              <button type="button" data-step="-1" data-target="count-field-attachedDrinks" aria-label="Subtract one Drinks on Meals in Robot / In Field">−</button>
+              <input id="count-field-attachedDrinks" name="field.attachedDrinks" data-location="field" data-count="attachedDrinks" type="number" min="0" step="1" inputmode="numeric" value="0" aria-describedby="attached-hint-field">
+              <button type="button" data-step="1" data-target="count-field-attachedDrinks" aria-label="Add one Drinks on Meals in Robot / In Field">+</button>
+            </div>
+          </div>
+          <div class="counter-row">
+            <label for="count-field-standaloneDrinks">Standalone Drinks <span class="rate">4 pts</span></label>
+            <div class="counter-stepper">
+              <button type="button" data-step="-1" data-target="count-field-standaloneDrinks" aria-label="Subtract one Standalone Drinks in Robot / In Field">−</button>
+              <input id="count-field-standaloneDrinks" name="field.standaloneDrinks" data-location="field" data-count="standaloneDrinks" type="number" min="0" step="1" inputmode="numeric" value="0">
+              <button type="button" data-step="1" data-target="count-field-standaloneDrinks" aria-label="Add one Standalone Drinks in Robot / In Field">+</button>
+            </div>
+          </div>
+          </div>
+          <p id="attached-hint-field" class="subset-hint">Drinks on Meals is a subset of this location’s meals, not another meal count.</p>
+        </fieldset>
+        <fieldset class="location-card" data-location="shelf">
+          <legend>Warming Shelf</legend>
+          <p class="location-hint">Up to 7 eligible scored units. +5 per meal, paired meal-and-drink, or standalone drink.</p>
+          <div class="counter-grid">
+          <div class="counter-row">
+            <label for="count-shelf-salad">Salad <span class="rate">10 + 5 pts</span></label>
+            <div class="counter-stepper">
+              <button type="button" data-step="-1" data-target="count-shelf-salad" aria-label="Subtract one Salad in Warming Shelf">−</button>
+              <input id="count-shelf-salad" name="shelf.salad" data-location="shelf" data-count="salad" type="number" min="0" step="1" inputmode="numeric" value="0">
+              <button type="button" data-step="1" data-target="count-shelf-salad" aria-label="Add one Salad in Warming Shelf">+</button>
+            </div>
+          </div>
+          <div class="counter-row">
+            <label for="count-shelf-pizza">Pizza <span class="rate">30 + 5 pts</span></label>
+            <div class="counter-stepper">
+              <button type="button" data-step="-1" data-target="count-shelf-pizza" aria-label="Subtract one Pizza in Warming Shelf">−</button>
+              <input id="count-shelf-pizza" name="shelf.pizza" data-location="shelf" data-count="pizza" type="number" min="0" step="1" inputmode="numeric" value="0">
+              <button type="button" data-step="1" data-target="count-shelf-pizza" aria-label="Add one Pizza in Warming Shelf">+</button>
+            </div>
+          </div>
+          <div class="counter-row">
+            <label for="count-shelf-sandwich">Sandwich <span class="rate">50 + 5 pts</span></label>
+            <div class="counter-stepper">
+              <button type="button" data-step="-1" data-target="count-shelf-sandwich" aria-label="Subtract one Sandwich in Warming Shelf">−</button>
+              <input id="count-shelf-sandwich" name="shelf.sandwich" data-location="shelf" data-count="sandwich" type="number" min="0" step="1" inputmode="numeric" value="0">
+              <button type="button" data-step="1" data-target="count-shelf-sandwich" aria-label="Add one Sandwich in Warming Shelf">+</button>
+            </div>
+          </div>
+          <div class="counter-row">
+            <label for="count-shelf-attachedDrinks">Drinks on Meals <span class="rate">+12 pts</span></label>
+            <div class="counter-stepper">
+              <button type="button" data-step="-1" data-target="count-shelf-attachedDrinks" aria-label="Subtract one Drinks on Meals in Warming Shelf">−</button>
+              <input id="count-shelf-attachedDrinks" name="shelf.attachedDrinks" data-location="shelf" data-count="attachedDrinks" type="number" min="0" step="1" inputmode="numeric" value="0" aria-describedby="attached-hint-shelf">
+              <button type="button" data-step="1" data-target="count-shelf-attachedDrinks" aria-label="Add one Drinks on Meals in Warming Shelf">+</button>
+            </div>
+          </div>
+          <div class="counter-row">
+            <label for="count-shelf-standaloneDrinks">Standalone Drinks <span class="rate">4 + 5 pts</span></label>
+            <div class="counter-stepper">
+              <button type="button" data-step="-1" data-target="count-shelf-standaloneDrinks" aria-label="Subtract one Standalone Drinks in Warming Shelf">−</button>
+              <input id="count-shelf-standaloneDrinks" name="shelf.standaloneDrinks" data-location="shelf" data-count="standaloneDrinks" type="number" min="0" step="1" inputmode="numeric" value="0">
+              <button type="button" data-step="1" data-target="count-shelf-standaloneDrinks" aria-label="Add one Standalone Drinks in Warming Shelf">+</button>
+            </div>
+          </div>
+          </div>
+          <p id="attached-hint-shelf" class="subset-hint">Drinks on Meals is a subset of this location’s meals, not another meal count.</p>
+        </fieldset>
+        <fieldset class="location-card" data-location="buffet">
+          <legend>Balance Buffet</legend>
+          <p class="location-hint">Up to 3 eligible scored units. +15 requires correct team side, balance, and pivot-only support.</p>
+          <div class="counter-grid">
+          <div class="counter-row">
+            <label for="count-buffet-salad">Salad <span class="rate">10 + 15 pts</span></label>
+            <div class="counter-stepper">
+              <button type="button" data-step="-1" data-target="count-buffet-salad" aria-label="Subtract one Salad in Balance Buffet">−</button>
+              <input id="count-buffet-salad" name="buffet.salad" data-location="buffet" data-count="salad" type="number" min="0" step="1" inputmode="numeric" value="0">
+              <button type="button" data-step="1" data-target="count-buffet-salad" aria-label="Add one Salad in Balance Buffet">+</button>
+            </div>
+          </div>
+          <div class="counter-row">
+            <label for="count-buffet-pizza">Pizza <span class="rate">30 + 15 pts</span></label>
+            <div class="counter-stepper">
+              <button type="button" data-step="-1" data-target="count-buffet-pizza" aria-label="Subtract one Pizza in Balance Buffet">−</button>
+              <input id="count-buffet-pizza" name="buffet.pizza" data-location="buffet" data-count="pizza" type="number" min="0" step="1" inputmode="numeric" value="0">
+              <button type="button" data-step="1" data-target="count-buffet-pizza" aria-label="Add one Pizza in Balance Buffet">+</button>
+            </div>
+          </div>
+          <div class="counter-row">
+            <label for="count-buffet-sandwich">Sandwich <span class="rate">50 + 15 pts</span></label>
+            <div class="counter-stepper">
+              <button type="button" data-step="-1" data-target="count-buffet-sandwich" aria-label="Subtract one Sandwich in Balance Buffet">−</button>
+              <input id="count-buffet-sandwich" name="buffet.sandwich" data-location="buffet" data-count="sandwich" type="number" min="0" step="1" inputmode="numeric" value="0">
+              <button type="button" data-step="1" data-target="count-buffet-sandwich" aria-label="Add one Sandwich in Balance Buffet">+</button>
+            </div>
+          </div>
+          <div class="counter-row">
+            <label for="count-buffet-attachedDrinks">Drinks on Meals <span class="rate">+12 pts</span></label>
+            <div class="counter-stepper">
+              <button type="button" data-step="-1" data-target="count-buffet-attachedDrinks" aria-label="Subtract one Drinks on Meals in Balance Buffet">−</button>
+              <input id="count-buffet-attachedDrinks" name="buffet.attachedDrinks" data-location="buffet" data-count="attachedDrinks" type="number" min="0" step="1" inputmode="numeric" value="0" aria-describedby="attached-hint-buffet">
+              <button type="button" data-step="1" data-target="count-buffet-attachedDrinks" aria-label="Add one Drinks on Meals in Balance Buffet">+</button>
+            </div>
+          </div>
+          <div class="counter-row">
+            <label for="count-buffet-standaloneDrinks">Standalone Drinks <span class="rate">4 + 15 pts</span></label>
+            <div class="counter-stepper">
+              <button type="button" data-step="-1" data-target="count-buffet-standaloneDrinks" aria-label="Subtract one Standalone Drinks in Balance Buffet">−</button>
+              <input id="count-buffet-standaloneDrinks" name="buffet.standaloneDrinks" data-location="buffet" data-count="standaloneDrinks" type="number" min="0" step="1" inputmode="numeric" value="0">
+              <button type="button" data-step="1" data-target="count-buffet-standaloneDrinks" aria-label="Add one Standalone Drinks in Balance Buffet">+</button>
+            </div>
+          </div>
+          </div>
+          <p id="attached-hint-buffet" class="subset-hint">Drinks on Meals is a subset of this location’s meals, not another meal count.</p>
+        </fieldset>
+        <fieldset class="location-card" data-location="dining">
+          <legend>Autonomous Dining Room</legend>
+          <p class="location-hint">Valid autonomous placements on distinct unoccupied tables, covering the central 4.25-inch square; at most 8 team plates.</p>
+          <div class="counter-grid">
+          <div class="counter-row">
+            <label for="count-dining-salad">Salad <span class="rate">10 + 50 pts</span></label>
+            <div class="counter-stepper">
+              <button type="button" data-step="-1" data-target="count-dining-salad" aria-label="Subtract one Salad in Autonomous Dining Room">−</button>
+              <input id="count-dining-salad" name="dining.salad" data-location="dining" data-count="salad" type="number" min="0" step="1" inputmode="numeric" value="0">
+              <button type="button" data-step="1" data-target="count-dining-salad" aria-label="Add one Salad in Autonomous Dining Room">+</button>
+            </div>
+          </div>
+          <div class="counter-row">
+            <label for="count-dining-pizza">Pizza <span class="rate">30 + 50 pts</span></label>
+            <div class="counter-stepper">
+              <button type="button" data-step="-1" data-target="count-dining-pizza" aria-label="Subtract one Pizza in Autonomous Dining Room">−</button>
+              <input id="count-dining-pizza" name="dining.pizza" data-location="dining" data-count="pizza" type="number" min="0" step="1" inputmode="numeric" value="0">
+              <button type="button" data-step="1" data-target="count-dining-pizza" aria-label="Add one Pizza in Autonomous Dining Room">+</button>
+            </div>
+          </div>
+          <div class="counter-row">
+            <label for="count-dining-sandwich">Sandwich <span class="rate">50 + 50 pts</span></label>
+            <div class="counter-stepper">
+              <button type="button" data-step="-1" data-target="count-dining-sandwich" aria-label="Subtract one Sandwich in Autonomous Dining Room">−</button>
+              <input id="count-dining-sandwich" name="dining.sandwich" data-location="dining" data-count="sandwich" type="number" min="0" step="1" inputmode="numeric" value="0">
+              <button type="button" data-step="1" data-target="count-dining-sandwich" aria-label="Add one Sandwich in Autonomous Dining Room">+</button>
+            </div>
+          </div>
+          <div class="counter-row">
+            <label for="count-dining-attachedDrinks">Drinks on Meals <span class="rate">+12 pts</span></label>
+            <div class="counter-stepper">
+              <button type="button" data-step="-1" data-target="count-dining-attachedDrinks" aria-label="Subtract one Drinks on Meals in Autonomous Dining Room">−</button>
+              <input id="count-dining-attachedDrinks" name="dining.attachedDrinks" data-location="dining" data-count="attachedDrinks" type="number" min="0" step="1" inputmode="numeric" value="0" aria-describedby="attached-hint-dining">
+              <button type="button" data-step="1" data-target="count-dining-attachedDrinks" aria-label="Add one Drinks on Meals in Autonomous Dining Room">+</button>
+            </div>
+          </div>
+          </div>
+          <p id="attached-hint-dining" class="subset-hint">Drinks on Meals is a subset of this location’s meals, not another meal count.</p>
+        </fieldset>
+        <fieldset class="location-card" data-location="qca">
+          <legend>Quality Check Area (QCA)</legend>
+          <p class="location-hint">Count valid spotter-built outcomes wholly inside the taped boundary. QCA values replace field values.</p>
+          <div class="counter-grid">
+          <div class="counter-row">
+            <label for="count-qca-salad">Salad <span class="rate">5 pts</span></label>
+            <div class="counter-stepper">
+              <button type="button" data-step="-1" data-target="count-qca-salad" aria-label="Subtract one Salad in Quality Check Area (QCA)">−</button>
+              <input id="count-qca-salad" name="qca.salad" data-location="qca" data-count="salad" type="number" min="0" step="1" inputmode="numeric" value="0">
+              <button type="button" data-step="1" data-target="count-qca-salad" aria-label="Add one Salad in Quality Check Area (QCA)">+</button>
+            </div>
+          </div>
+          <div class="counter-row">
+            <label for="count-qca-pizza">Pizza <span class="rate">15 pts</span></label>
+            <div class="counter-stepper">
+              <button type="button" data-step="-1" data-target="count-qca-pizza" aria-label="Subtract one Pizza in Quality Check Area (QCA)">−</button>
+              <input id="count-qca-pizza" name="qca.pizza" data-location="qca" data-count="pizza" type="number" min="0" step="1" inputmode="numeric" value="0">
+              <button type="button" data-step="1" data-target="count-qca-pizza" aria-label="Add one Pizza in Quality Check Area (QCA)">+</button>
+            </div>
+          </div>
+          <div class="counter-row">
+            <label for="count-qca-sandwich">Sandwich <span class="rate">25 pts</span></label>
+            <div class="counter-stepper">
+              <button type="button" data-step="-1" data-target="count-qca-sandwich" aria-label="Subtract one Sandwich in Quality Check Area (QCA)">−</button>
+              <input id="count-qca-sandwich" name="qca.sandwich" data-location="qca" data-count="sandwich" type="number" min="0" step="1" inputmode="numeric" value="0">
+              <button type="button" data-step="1" data-target="count-qca-sandwich" aria-label="Add one Sandwich in Quality Check Area (QCA)">+</button>
+            </div>
+          </div>
+          <div class="counter-row">
+            <label for="count-qca-attachedDrinks">Drinks on Meals <span class="rate">+6 pts</span></label>
+            <div class="counter-stepper">
+              <button type="button" data-step="-1" data-target="count-qca-attachedDrinks" aria-label="Subtract one Drinks on Meals in Quality Check Area (QCA)">−</button>
+              <input id="count-qca-attachedDrinks" name="qca.attachedDrinks" data-location="qca" data-count="attachedDrinks" type="number" min="0" step="1" inputmode="numeric" value="0" aria-describedby="attached-hint-qca">
+              <button type="button" data-step="1" data-target="count-qca-attachedDrinks" aria-label="Add one Drinks on Meals in Quality Check Area (QCA)">+</button>
+            </div>
+          </div>
+          <div class="counter-row">
+            <label for="count-qca-standaloneDrinks">Standalone Drinks <span class="rate">2 pts</span></label>
+            <div class="counter-stepper">
+              <button type="button" data-step="-1" data-target="count-qca-standaloneDrinks" aria-label="Subtract one Standalone Drinks in Quality Check Area (QCA)">−</button>
+              <input id="count-qca-standaloneDrinks" name="qca.standaloneDrinks" data-location="qca" data-count="standaloneDrinks" type="number" min="0" step="1" inputmode="numeric" value="0">
+              <button type="button" data-step="1" data-target="count-qca-standaloneDrinks" aria-label="Add one Standalone Drinks in Quality Check Area (QCA)">+</button>
+            </div>
+          </div>
+          </div>
+          <p id="attached-hint-qca" class="subset-hint">Drinks on Meals is a subset of this location’s meals, not another meal count.</p>
+        </fieldset>
+            </div>
+            <fieldset id="garden-fields" class="garden-card">
+              <legend>Six designated Garden objectives</legend>
+              <p>Each is a one-time team-owned objective, even if another robot completed it. These are not ingredient-per-piece counts.</p>
+              <div class="garden-grid">
+          <label class="garden-check"><input id="garden-drone" name="garden.drone" data-garden="drone" type="checkbox"><span>Crop-Tending Drone</span><strong>+8</strong></label>
+          <label class="garden-check"><input id="garden-irrigation" name="garden.irrigation" data-garden="irrigation" type="checkbox"><span>Water Irrigation Valve</span><strong>+4</strong></label>
+          <label class="garden-check"><input id="garden-vegetables" name="garden.vegetables" data-garden="vegetables" type="checkbox"><span>Harvest Vegetables</span><strong>+4</strong></label>
+          <label class="garden-check"><input id="garden-fruit" name="garden.fruit" data-garden="fruit" type="checkbox"><span>Harvest Fruit</span><strong>+4</strong></label>
+          <label class="garden-check"><input id="garden-cold" name="garden.cold" data-garden="cold" type="checkbox"><span>Harvest Cold Ingredients</span><strong>+8</strong></label>
+          <label class="garden-check"><input id="garden-grain" name="garden.grain" data-garden="grain" type="checkbox"><span>Harvest Grain</span><strong>+8</strong></label>
+              </div>
+            </fieldset>
+            <fieldset id="official-conditions" class="conditions-card">
+              <legend>Eligibility and match notes</legend>
+              <label class="condition-check"><input id="buffet-qualified" type="checkbox"> Confirm Balance Buffet entries are on the correct team side, balanced between tape indicators, and supported only at pivots.</label>
+              <label class="condition-check"><input id="disqualified" type="checkbox"> Disqualified (DQ) · awarded total zero; keep raw scoring details.</label>
+              <label for="suspensions">20-second suspensions (logged; no point deduction)<input id="suspensions" type="number" min="0" step="1" inputmode="numeric" value="0"></label>
+            </fieldset>
+          </div>
+
+          <section id="custom-counts" class="custom-counts" hidden aria-labelledby="custom-counts-heading">
+            <div class="section-heading"><div><p class="eyebrow">SEPARATE RULESET</p><h2 id="custom-counts-heading">Custom Practice outcomes</h2></div><p>Your named objectives only; no Byte to Bite points or Garden awards.</p></div>
+            <div id="custom-count-list"></div>
+          </section>
+
+          <label class="note-field" for="round-note">Round note<textarea id="round-note" rows="2" maxlength="10000" placeholder="Optional observation or judging note"></textarea></label>
+          <details class="breakdown-panel"><summary>Score breakdown and validation</summary><div id="score-breakdown">Point rates and any warnings appear here as you enter final outcomes.</div></details>
+          <div class="round-actions">
+            <button id="save-round" type="button" class="button">Save Round</button>
+            <button id="new-round" type="button" class="button button--secondary">New Round</button>
+            <button id="export-json" type="button" class="button button--quiet">Export JSON</button>
+            <button id="export-csv" type="button" class="button button--quiet">Export CSV</button>
+            <button id="import-json-button" type="button" class="button button--quiet">Import JSON</button>
+            <input id="import-json" type="file" accept=".json,application/json" hidden>
+          </div>
+        </form>
+        <section class="history-card" aria-labelledby="history-heading"><div class="section-heading"><h2 id="history-heading">Saved rounds</h2><p>Stored only in this browser/device; export before the 50-round limit.</p></div><ol id="history-list"><li>No saved rounds yet.</li></ol></section>
+      </section>
+
+      <section id="panel-optimizer" role="tabpanel" aria-labelledby="tab-optimizer" hidden>
+        <form id="optimize-form" novalidate>
+          <div class="section-heading"><div><p class="eyebrow">MEASURED COMPLETE CYCLES</p><h2>Optimize a Round</h2></div><p>Find the best task mix for your declared times and constraints, not a guaranteed competition maximum or a route.</p></div>
+          <section class="optimizer-basics">
+            <label for="available-seconds">Available seconds<input id="available-seconds" type="number" min="0" max="180" step="0.1" value="180" inputmode="decimal"></label>
+            <label for="reserve-seconds">Reserve seconds<input id="reserve-seconds" type="number" min="0" step="0.1" value="0" inputmode="decimal"></label>
+            <label class="condition-check best-optimizer-field"><input id="buffet-expected-qualified" type="checkbox"> Expect qualified Buffet balance and team-side/pivot support (conditional plan)</label>
+          </section>
+          <details id="resource-budget" class="settings-panel">
+            <summary>Resource Budget · conservative planning defaults</summary>
+            <p>Ingredient defaults use one designated area as a conservative user budget, not an ownership rule. The two-area shared-half supply is shared with another team and is not guaranteed. Owned plates and cups stay at eight.</p>
+            <label for="resource-preset">Budget preset<select id="resource-preset"><option value="conservative">One designated area · conservative</option><option value="shared-half">Shared half · not guaranteed</option><option value="custom">Custom available budget</option></select></label>
+            <div class="resource-grid">
+            <label for="resource-plates">Owned plates<input id="resource-plates" data-resource="plates" type="number" min="0" step="1" value="8" inputmode="numeric"></label>
+            <label for="resource-cups">Owned cups<input id="resource-cups" data-resource="cups" type="number" min="0" step="1" value="8" inputmode="numeric"></label>
+            <label for="resource-fruit">Fruit<input id="resource-fruit" data-resource="fruit" type="number" min="0" step="1" value="6" inputmode="numeric"></label>
+            <label for="resource-vegetables">Vegetables<input id="resource-vegetables" data-resource="vegetables" type="number" min="0" step="1" value="6" inputmode="numeric"></label>
+            <label for="resource-dairy">Dairy<input id="resource-dairy" data-resource="dairy" type="number" min="0" step="1" value="6" inputmode="numeric"></label>
+            <label for="resource-protein">Protein<input id="resource-protein" data-resource="protein" type="number" min="0" step="1" value="6" inputmode="numeric"></label>
+            <label for="resource-grain">Grain<input id="resource-grain" data-resource="grain" type="number" min="0" step="1" value="12" inputmode="numeric"></label>
+            <label for="resource-water">Water<input id="resource-water" data-resource="water" type="number" min="0" step="1" value="8" inputmode="numeric"></label>
+            <label for="resource-shelfUnits">Shelf units<input id="resource-shelfUnits" data-resource="shelfUnits" type="number" min="0" step="1" value="7" inputmode="numeric"></label>
+            <label for="resource-buffetUnits">Buffet units<input id="resource-buffetUnits" data-resource="buffetUnits" type="number" min="0" step="1" value="3" inputmode="numeric"></label>
+            <label for="resource-diningTables">Available Dining tables<input id="resource-diningTables" data-resource="diningTables" type="number" min="0" step="1" value="8" inputmode="numeric"></label>
+            </div>
+          </details>
+          <section class="profiles-section" aria-labelledby="profiles-heading">
+            <div class="section-heading"><div><p class="eyebrow">COMPLETE ACQUIRE → BUILD → DELIVER → RESET CYCLES</p><h3 id="profiles-heading">Task profiles</h3></div><button id="add-profile" type="button" class="button button--secondary">Add profile</button></div>
+            <p>Enter real full-cycle seconds; blank or disabled profiles are excluded. Recipe quantities are transparent planning assumptions and must describe a valid meal. QCA time includes required spotter work.</p>
+            <div id="profiles-list"></div>
+            <template id="profile-template">
+              <fieldset class="profile-card" data-profile>
+                <legend>Task profile</legend>
+                <div class="profile-fields">
+                  <label class="condition-check"><input data-profile-field="enabled" type="checkbox" checked> Enable activity</label>
+                  <label>Name<input data-profile-field="name" type="text" maxlength="80" placeholder="Optional task label"></label>
+                  <label class="best-profile-field">Final destination<select data-profile-field="location"><option value="field">Robot / In Field</option><option value="shelf">Warming Shelf</option><option value="buffet">Balance Buffet</option><option value="dining">Autonomous Dining Room</option><option value="qca">Quality Check Area</option></select></label>
+                  <label class="best-profile-field">Meal type<select data-profile-field="mealType"><option value="salad">Salad</option><option value="pizza">Pizza</option><option value="sandwich">Sandwich</option><option value="">No meal / standalone drink</option></select></label>
+                  <label class="condition-check best-profile-field"><input data-profile-field="attachedDrink" type="checkbox"> Add drink to this meal</label>
+                  <label class="condition-check best-profile-field"><input data-profile-field="standaloneDrink" type="checkbox"> Standalone drink instead of meal</label>
+                  <label>Measured full-cycle seconds<input data-profile-field="timeSeconds" type="number" min="0.1" step="0.1" inputmode="decimal" placeholder="Leave blank until measured"></label>
+                  <label>Maximum repeats<input data-profile-field="maxRepeats" type="number" min="0" max="8" step="1" value="1"></label>
+                  <label class="custom-profile-field" hidden>Custom objective<select data-profile-field="practiceObjectiveId"><option value="">Choose objective</option></select></label>
+                </div>
+                <details class="profile-advanced best-profile-field"><summary>Recipe and included Garden objectives</summary>
+                  <p>Minimal salad example shown: one fruit + one vegetable. Pizza needs grain under at least three non-grain types; Sandwich needs two grain and all four non-grain types. Recheck your measured time after changing a recipe.</p>
+                  <div class="recipe-grid">
+              <label>Fruit<input type="number" min="0" step="1" data-recipe="fruit" value="1"></label>
+              <label>Vegetables<input type="number" min="0" step="1" data-recipe="vegetables" value="1"></label>
+              <label>Dairy<input type="number" min="0" step="1" data-recipe="dairy" value="0"></label>
+              <label>Protein<input type="number" min="0" step="1" data-recipe="protein" value="0"></label>
+              <label>Grain<input type="number" min="0" step="1" data-recipe="grain" value="0"></label>
+                  </div>
+                  <div class="included-garden"><p>Only check an owned Garden objective when this measured cycle guarantees its completion. Do not count it twice.</p>
+                <label><input type="checkbox" data-included-garden="drone"> Crop-Tending Drone</label>
+                <label><input type="checkbox" data-included-garden="irrigation"> Water Irrigation Valve</label>
+                <label><input type="checkbox" data-included-garden="vegetables"> Harvest Vegetables</label>
+                <label><input type="checkbox" data-included-garden="fruit"> Harvest Fruit</label>
+                <label><input type="checkbox" data-included-garden="cold"> Harvest Cold Ingredients</label>
+                <label><input type="checkbox" data-included-garden="grain"> Harvest Grain</label>
+                  </div>
+                </details>
+                <button type="button" data-remove-profile class="button button--quiet">Remove profile</button>
+              </fieldset>
+            </template>
+          </section>
+          <details id="garden-times" class="settings-panel"><summary>Additional once-only Garden actions</summary><p>Only enter positive additional, non-overlapping seconds. Do not repeat a Garden objective already guaranteed inside a meal cycle.</p>
+            <div class="garden-time-grid">
+          <div class="garden-time-row">
+            <label><input id="garden-opt-drone" data-garden-opt="drone" type="checkbox"> Crop-Tending Drone</label>
+            <label for="garden-time-drone">Additional seconds</label>
+            <input id="garden-time-drone" data-garden-time="drone" type="number" min="0.1" step="0.1" inputmode="decimal" placeholder="Measured time" value="">
+          </div>
+          <div class="garden-time-row">
+            <label><input id="garden-opt-irrigation" data-garden-opt="irrigation" type="checkbox"> Water Irrigation Valve</label>
+            <label for="garden-time-irrigation">Additional seconds</label>
+            <input id="garden-time-irrigation" data-garden-time="irrigation" type="number" min="0.1" step="0.1" inputmode="decimal" placeholder="Measured time" value="">
+          </div>
+          <div class="garden-time-row">
+            <label><input id="garden-opt-vegetables" data-garden-opt="vegetables" type="checkbox"> Harvest Vegetables</label>
+            <label for="garden-time-vegetables">Additional seconds</label>
+            <input id="garden-time-vegetables" data-garden-time="vegetables" type="number" min="0.1" step="0.1" inputmode="decimal" placeholder="Measured time" value="">
+          </div>
+          <div class="garden-time-row">
+            <label><input id="garden-opt-fruit" data-garden-opt="fruit" type="checkbox"> Harvest Fruit</label>
+            <label for="garden-time-fruit">Additional seconds</label>
+            <input id="garden-time-fruit" data-garden-time="fruit" type="number" min="0.1" step="0.1" inputmode="decimal" placeholder="Measured time" value="">
+          </div>
+          <div class="garden-time-row">
+            <label><input id="garden-opt-cold" data-garden-opt="cold" type="checkbox"> Harvest Cold Ingredients</label>
+            <label for="garden-time-cold">Additional seconds</label>
+            <input id="garden-time-cold" data-garden-time="cold" type="number" min="0.1" step="0.1" inputmode="decimal" placeholder="Measured time" value="">
+          </div>
+          <div class="garden-time-row">
+            <label><input id="garden-opt-grain" data-garden-opt="grain" type="checkbox"> Harvest Grain</label>
+            <label for="garden-time-grain">Additional seconds</label>
+            <input id="garden-time-grain" data-garden-time="grain" type="number" min="0.1" step="0.1" inputmode="decimal" placeholder="Measured time" value="">
+          </div>
+            </div>
+          </details>
+          <div class="optimizer-actions"><button id="optimize-run" type="button" class="button">Find best task mix</button><button id="optimize-cancel" type="button" class="button button--secondary" disabled>Cancel</button></div>
+        </form>
+        <section class="optimizer-output" aria-labelledby="optimizer-results-heading"><div class="section-heading"><h2 id="optimizer-results-heading">Recommendation</h2><p>Only an honestly completed search is labeled “Optimal for this model.”</p></div><div id="optimize-results" role="status" aria-live="polite">Add measured profiles, then run the optimizer.</div><button id="preview-plan" type="button" class="button button--secondary" disabled>Preview in Scorer · planned only</button></section>
+      </section>
+
+      <details id="rules-help" class="rules-help"><summary>Rules basis, interpretation, and Help</summary><div>
+        <p><strong>Practice translation; not official referee software.</strong> Basis: 2026 BEST Robotics Classic Competition Rules — Byte to Bite, v3.3, September 10, 2026, sections 1.4.4–1.4.5 (p.16), 3.3–3.7 (pp.24–38), Table 3.7 (pp.37–38), and Appendices D/E (pp.64–68). Scoring Summary is an extract of pp.34–38. Credit: BEST Robotics. No later Q&amp;A or revision has been checked.</p>
+        <p>Count each valid meal/drink in one final location. Shelf/qualified Buffet location awards are translated to apply once to a meal, standalone drink, or pair, per the express drink/combination notes. Buffet qualification, Dining autonomy/unoccupied table, QCA boundary, and meal validity are judged by the human scorer; unresolved cases need review, not automatic fallback. Suspensions are lost operating time, not point deductions.</p>
+        <p>The optimizer assumes sequential full cycles, up to 30 user-entered planning profiles, measured timings and availability, and no opponent/route model. It cannot certify a physical match outcome. Local history and drafts stay on this device; export JSON for a portable backup or CSV for analysis. <a href="./RULES_NOTES.md">Read concise rules and modeling notes</a>.</p>
+      </div></details>
+    </main>
+    <footer class="app-footer"><span>CVS Robotics Lab · browser-local practice tools</span><a href="../">Back to launcher</a></footer>
+  </div>
+  <script src="./score-model.js"></script>
+  <script src="./timer.js"></script>
+  <script src="./storage.js"></script>
+  <script src="./optimizer.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>
