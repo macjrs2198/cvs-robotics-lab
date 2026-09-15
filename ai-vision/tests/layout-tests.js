@@ -390,24 +390,53 @@ function createControllerHarness(existingStorageValues) {
   assert.equal(attribute(cameraCanvas, "width"), "320");
   assert.equal(attribute(cameraCanvas, "height"), "240");
 
-  const originalAssetVersions = {
-    "styles.css": "4.0",
-    "help-content.js": "3.0",
-    "dining-room-model.js": "1.1",
-    "dining-room-controller.js": "2.0",
-    "blocks.js": "3.0",
-    "app.js": "4.1",
-  };
-  Object.entries(originalAssetVersions).forEach(([assetName, priorVersion]) => {
-    assert.notEqual(
-      localAssetVersion(assetName),
-      priorVersion,
-      `${assetName} must be cache-busted for this release`,
+  const obstructionFieldset = elementTag("fieldset", "practice-obstructions-fieldset");
+  assert.equal(attribute(obstructionFieldset, "aria-describedby"), "practice-obstructions-status");
+  assert.match(obstructionFieldset, /\shidden(?:\s|>)/);
+  assert.match(obstructionFieldset, /\sdisabled(?:\s|>)/);
+  assert.match(indexSource, /<legend>Practice Obstructions<\/legend>/);
+  [
+    ["fruit-clutter-toggle", "Fruit Clutter"],
+    ["roaming-robot-toggle", "Roaming Robot"],
+  ].forEach(([id, label]) => {
+    const input = elementTag("input", id);
+    assert.equal(attribute(input, "type"), "checkbox");
+    assert.equal(attribute(input, "checked"), null, `${label} must default off`);
+    assert.match(
+      indexSource,
+      new RegExp(`<label\\b[^>]*\\bfor="${id}"[^>]*>[\\s\\S]*?<span>${label}<\\/span>[\\s\\S]*?<\\/label>`),
     );
   });
-  localAssetVersion("drivetrain.js");
+  const randomizeButton = elementTag("button", "randomize-obstructions-button");
+  assert.equal(attribute(randomizeButton, "type"), "button");
+  assert.equal(attribute(randomizeButton, "aria-controls"), "dining-world-canvas dining-camera-canvas");
+  const obstructionStatus = elementTag("p", "practice-obstructions-status");
+  assert.equal(attribute(obstructionStatus, "role"), "status");
+  assert.equal(attribute(obstructionStatus, "aria-live"), "polite");
+  assert.match(stylesSource, /\.practice-obstructions\s*\{[^}]*grid-column:\s*1\s*\/\s*-1;/s);
+  assert.match(stylesSource, /\.practice-obstructions-controls\s*\{[^}]*display:\s*grid;/s);
+  assert.match(stylesSource, /@media \(max-width: 620px\)[\s\S]*?\.practice-obstructions-button\s*\{[^}]*grid-column:\s*1\s*\/\s*-1;/);
+
+  const expectedAssetVersions = {
+    "styles.css": "6.0",
+    "help-content.js": "5.0",
+    "dining-room-model.js": "3.0",
+    "simulator.js": "3.0",
+    "dining-room-controller.js": "4.0",
+    "drivetrain.js": "2.0",
+    "blocks.js": "4.0",
+    "layout.js": "1.0",
+    "app.js": "6.0",
+  };
+  Object.entries(expectedAssetVersions).forEach(([assetName, expectedVersion]) => {
+    assert.equal(
+      localAssetVersion(assetName),
+      expectedVersion,
+      `${assetName} must use the expected cache version`,
+    );
+  });
 
   ["VisionSimulator", "takeSnapshot", "resetWorld", "resetTarget", "setTargetPosition", "Drivetrain", "cvsProgramControl"]
     .forEach((forbidden) => assert.equal(layoutSource.includes(forbidden), false, `${forbidden} must stay out of layout.js`));
-  console.log("PASS: setup labels, dimensions, three head controls, camera cap, cache busts, and source boundaries remain exact");
+  console.log("PASS: setup labels, obstruction controls, dimensions, camera cap, cache busts, and source boundaries remain exact");
 }

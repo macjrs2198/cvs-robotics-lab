@@ -16,7 +16,7 @@
       href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap"
       rel="stylesheet"
     >
-    <link rel="stylesheet" href="./styles.css?v=5.0">
+    <link rel="stylesheet" href="./styles.css?v=6.0">
     <link rel="stylesheet" href="../shared/controls.css?v=1.0">
     <link rel="stylesheet" href="../shared/help/help-ui.css?v=1.0">
   </head>
@@ -143,6 +143,32 @@
                   <button id="look-down-button" class="head-button" type="button" aria-pressed="false">Down 60&deg;</button>
                 </div>
               </div>
+              <fieldset
+                id="practice-obstructions-fieldset"
+                class="practice-obstructions"
+                aria-describedby="practice-obstructions-status"
+                hidden
+                disabled
+              >
+                <legend>Practice Obstructions</legend>
+                <div class="practice-obstructions-controls">
+                  <label class="practice-obstruction-toggle" for="fruit-clutter-toggle">
+                    <input id="fruit-clutter-toggle" type="checkbox">
+                    <span>Fruit Clutter</span>
+                  </label>
+                  <label class="practice-obstruction-toggle" for="roaming-robot-toggle">
+                    <input id="roaming-robot-toggle" type="checkbox">
+                    <span>Roaming Robot</span>
+                  </label>
+                  <button
+                    id="randomize-obstructions-button"
+                    class="practice-obstructions-button"
+                    type="button"
+                    aria-controls="dining-world-canvas dining-camera-canvas"
+                  >Randomize</button>
+                </div>
+                <p id="practice-obstructions-status" class="practice-obstructions-status" role="status" aria-live="polite"></p>
+              </fieldset>
             </div>
           </section>
 
@@ -295,13 +321,13 @@
     <script src="../shared/blockly/core-toolbox.js?v=1.0"></script>
     <script src="../shared/runtime/program-control.js?v=1.0"></script>
     <script src="../shared/help/help-ui.js?v=1.0"></script>
-    <script src="./help-content.js?v=4.0"></script>
-    <script src="./dining-room-model.js?v=2.0"></script>
+    <script src="./help-content.js?v=5.0"></script>
+    <script src="./dining-room-model.js?v=3.0"></script>
     <script src="./simulator.js?v=3.0"></script>
-    <script src="./dining-room-controller.js?v=3.0"></script>
+    <script src="./dining-room-controller.js?v=4.0"></script>
     <script src="./drivetrain.js?v=2.0"></script>
     <script src="./blocks.js?v=4.0"></script>
     <script src="./layout.js?v=1.0"></script>
-    <script src="./app.js?v=5.0"></script>
+    <script src="./app.js?v=6.0"></script>
   </body>
 </html>

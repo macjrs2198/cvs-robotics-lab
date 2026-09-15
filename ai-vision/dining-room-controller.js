@@ -58,6 +58,11 @@
   let lookForwardButton = null;
   let lookDown45Button = null;
   let lookDownButton = null;
+  let practiceObstructionsFieldset = null;
+  let fruitClutterToggle = null;
+  let roamingRobotToggle = null;
+  let randomizeObstructionsButton = null;
+  let practiceObstructionsStatus = null;
   let setupStatusElement = null;
   let cameraModeHintElement = null;
   let cameraHeadingElement = null;
@@ -73,8 +78,33 @@
   let worldDisplayHeight = 160;
   let worldPixelRatio = 1;
   let initialized = false;
+  let programStopped = true;
   const markerImages = [];
   const markerImageFailures = new Set();
+
+  function clonePracticeObstructions(source) {
+    return {
+      fruitClutter: source.fruitClutter,
+      roamingRobot: source.roamingRobot,
+      seed: source.seed,
+      fruit: source.fruit.map((item) => ({ ...item })),
+      roamingStart: source.roamingStart ? { ...source.roamingStart } : null
+    };
+  }
+
+  function samePracticeObstructions(left, right) {
+    return JSON.stringify(left) === JSON.stringify(right);
+  }
+
+  function isProgramStopped() {
+    if (
+      window.cvsProgramControl &&
+      typeof window.cvsProgramControl.isStopped === "function"
+    ) {
+      return window.cvsProgramControl.isStopped();
+    }
+    return programStopped;
+  }
 
   function normalizeSettings(candidate) {
     if (candidate === undefined || candidate === null) candidate = {};
@@ -176,13 +206,18 @@
         `${selectedStart.label} does not fit a ${normalizedChassis.length} \u00d7 ${normalizedChassis.width} inch chassis. Choose another start or smaller dimensions.`,
       );
     }
+    const practiceObstructions = diningModel.normalizePracticeObstructions(
+      candidate.practiceObstructions,
+      { robot: selectedStart, chassis: normalizedChassis },
+    );
 
     return {
       scene,
       camera: { mount, height: steppedHeight, head },
       chassis: normalizedChassis,
       startPose,
-      diningStartPose
+      diningStartPose,
+      practiceObstructions
     };
   }
 
@@ -192,7 +227,8 @@
       camera: { ...settings.camera },
       chassis: { ...settings.chassis },
       startPose: settings.startPose,
-      diningStartPose: settings.diningStartPose
+      diningStartPose: settings.diningStartPose,
+      practiceObstructions: clonePracticeObstructions(settings.practiceObstructions)
     };
   }
 
@@ -207,7 +243,8 @@
           camera: { ...nextSettings.camera },
           chassis: { ...nextSettings.chassis },
           startPose: nextSettings.startPose,
-          diningStartPose: nextSettings.diningStartPose
+          diningStartPose: nextSettings.diningStartPose,
+          practiceObstructions: clonePracticeObstructions(nextSettings.practiceObstructions)
         }
       }
     }));
@@ -217,6 +254,7 @@
     return diningModel.createState({
       startPoseId: nextSettings.startPose,
       chassis: nextSettings.chassis,
+      practiceObstructions: nextSettings.practiceObstructions,
       camera: {
         mount: nextSettings.camera.mount,
         height: nextSettings.camera.height,
@@ -234,6 +272,12 @@
         settings.chassis.width !== nextSettings.chassis.width
       )
     );
+    const practiceObstructionsChanged = Boolean(
+      settings && !samePracticeObstructions(
+        settings.practiceObstructions,
+        nextSettings.practiceObstructions,
+      )
+    );
     if (
       dimensionsChanged &&
       window.cvsProgramControl &&
@@ -241,6 +285,9 @@
       !window.cvsProgramControl.isStopped()
     ) {
       throw new Error("Stop the program before changing chassis dimensions.");
+    }
+    if (practiceObstructionsChanged && !isProgramStopped()) {
+      throw new Error("Stop the program before changing practice obstructions.");
     }
     const preserveHead = Boolean(applyOptions.preserveHead) && settings && settings.scene === nextSettings.scene;
     const nextHead = preserveHead ? headPreset : nextSettings.camera.head;
@@ -371,6 +418,50 @@
     return resetWorld();
   }
 
+  function createPracticeScenario(options, seed) {
+    const selectedStart = diningModel.startPoses.find((pose) => pose.id === settings.diningStartPose);
+    return diningModel.createPracticeObstructions(
+      {
+        fruitClutter: Boolean(options.fruitClutter),
+        roamingRobot: Boolean(options.roamingRobot)
+      },
+      {
+        robot: selectedStart,
+        chassis: settings.chassis,
+        seed
+      },
+    );
+  }
+
+  function setPracticeObstructions(options) {
+    if (settings.scene !== DINING_SCENE_ID) {
+      throw new Error("Practice obstructions are available only in Dining Room.");
+    }
+    if (!isProgramStopped()) {
+      throw new Error("Stop the program before changing practice obstructions.");
+    }
+    const next = getSettings();
+    next.practiceObstructions = createPracticeScenario(options, settings.practiceObstructions.seed);
+    return applySettings(next, { notify: true, preserveHead: true });
+  }
+
+  function nextPracticeSeed(seed) {
+    return (Number(seed) + 0x9e3779b9) >>> 0;
+  }
+
+  function randomizePracticeObstructions() {
+    if (settings.scene !== DINING_SCENE_ID) {
+      throw new Error("Practice obstructions are available only in Dining Room.");
+    }
+    if (!isProgramStopped()) {
+      throw new Error("Stop the program before randomizing practice obstructions.");
+    }
+    const current = settings.practiceObstructions;
+    const next = getSettings();
+    next.practiceObstructions = createPracticeScenario(current, nextPracticeSeed(current.seed));
+    return applySettings(next, { notify: true, preserveHead: true });
+  }
+
   function getWorldState() {
     if (settings.scene === DINING_SCENE_ID) {
       return {
@@ -400,8 +491,19 @@
   function step(deltaSeconds) {
     if (!window.cvsProgramControl || !window.cvsProgramControl.isPaused()) {
       if (settings.scene === DINING_SCENE_ID) {
-        const movement = diningModel.integrateRobot(diningState, window.drivetrain, deltaSeconds);
-        diningState = { ...diningState, robot: movement.pose };
+        const movement = diningModel.integrateScene(
+          diningState,
+          window.drivetrain,
+          deltaSeconds,
+          {
+            advanceRoaming: Boolean(
+              window.cvsProgramControl &&
+              typeof window.cvsProgramControl.isRunning === "function" &&
+              window.cvsProgramControl.isRunning()
+            )
+          },
+        );
+        diningState = movement.state;
         motionBlocked = movement.blocked;
         collisionDetail = movement.collision;
       } else {
@@ -599,6 +701,43 @@
     ];
   }
 
+  function obstructionFaces(obstruction) {
+    const footprint = Array.isArray(obstruction.footprint) ? obstruction.footprint : [];
+    if (footprint.length < 3) return [];
+    const minimumZ = Number(obstruction.minimumZ) || 0;
+    const maximumZ = Number(obstruction.maximumZ) || Number(obstruction.height) || minimumZ;
+    const top = footprint.map((point) => ({ x: point.x, y: point.y, z: maximumZ }));
+    const sides = footprint.map((point, index) => {
+      const next = footprint[(index + 1) % footprint.length];
+      return [
+        { x: point.x, y: point.y, z: minimumZ },
+        { x: next.x, y: next.y, z: minimumZ },
+        { x: next.x, y: next.y, z: maximumZ },
+        { x: point.x, y: point.y, z: maximumZ }
+      ];
+    });
+    return [top, ...sides];
+  }
+
+  function obstructionPalette(obstruction, faceIndex) {
+    if (obstruction.kind === "practice-fruit") {
+      return {
+        fill: faceIndex === 0 ? "#ffb33f" : "#c9572c",
+        stroke: "#ffd787"
+      };
+    }
+    return {
+      fill: faceIndex === 0 ? "#7584d6" : "#34437f",
+      stroke: "#c3ccff"
+    };
+  }
+
+  function obstructionCountDescription(obstructions) {
+    const fruitCount = obstructions.filter((item) => item.kind === "practice-fruit").length;
+    const roamingCount = obstructions.filter((item) => item.kind === "roaming-robot").length;
+    return `${fruitCount} fruit prop${fruitCount === 1 ? "" : "s"} and ${roamingCount} roaming robot${roamingCount === 1 ? "" : "s"}`;
+  }
+
   function renderDiningCamera() {
     if (!diningCameraCanvas || !diningProjection) return;
     const context = diningCameraCanvas.getContext("2d");
@@ -663,6 +802,21 @@
       });
     });
 
+    diningProjection.obstructions.forEach((obstruction) => {
+      obstructionFaces(obstruction).forEach((points, faceIndex) => {
+        const face = projectWorldPolygon(points, camera);
+        if (!face) return;
+        const palette = obstructionPalette(obstruction, faceIndex);
+        renderItems.push({
+          ...face,
+          kind: "face",
+          layer: 1,
+          fill: palette.fill,
+          stroke: palette.stroke
+        });
+      });
+    });
+
     diningProjection.markers.forEach((projection) => {
       if (!projection.allInFront) return;
       const paperProjection = markerCorners(projection.marker, projection.marker.paperSide)
@@ -712,7 +866,7 @@
 
     diningCameraCanvas.setAttribute(
       "aria-label",
-      `Live projected Dining Room camera. ${diningProjection.detections.length} fiducial${diningProjection.detections.length === 1 ? "" : "s"} currently readable.`,
+      `Live projected Dining Room camera. ${diningProjection.detections.length} fiducial${diningProjection.detections.length === 1 ? "" : "s"} currently readable. ${obstructionCountDescription(diningProjection.obstructions)} in the scene.`,
     );
   }
 
@@ -863,6 +1017,42 @@
     });
     context.restore();
 
+    layout.obstructions.forEach((obstruction) => {
+      canvasPath(context, obstruction.footprint);
+      const isFruit = obstruction.kind === "practice-fruit";
+      context.fillStyle = isFruit ? "#f07a3f" : "#6677c8";
+      context.strokeStyle = isFruit ? "#ffd17a" : "#c3ccff";
+      context.lineWidth = 1.3;
+      context.fill();
+      context.stroke();
+
+      if (isFruit) {
+        context.fillStyle = "#73c66b";
+        context.beginPath();
+        context.ellipse(
+          obstruction.x + layout.scale * 0.8,
+          obstruction.y - layout.scale * 0.8,
+          Math.max(1.2, layout.scale * 1.3),
+          Math.max(0.8, layout.scale * 0.7),
+          -Math.PI / 4,
+          0,
+          Math.PI * 2,
+        );
+        context.fill();
+      } else {
+        const frontLength = (Number(obstruction.length) || 18) * layout.scale * 0.38;
+        context.strokeStyle = "#edf0ff";
+        context.lineWidth = 1.6;
+        context.beginPath();
+        context.moveTo(obstruction.x, obstruction.y);
+        context.lineTo(
+          obstruction.x + Math.cos(obstruction.heading) * frontLength,
+          obstruction.y - Math.sin(obstruction.heading) * frontLength,
+        );
+        context.stroke();
+      }
+    });
+
     canvasPath(context, layout.robot.footprint);
     context.fillStyle = "#dafcf2";
     context.strokeStyle = motionBlocked ? "#ff8b82" : "#0a4d3d";
@@ -899,7 +1089,7 @@
 
     diningWorldCanvas.setAttribute(
       "aria-label",
-      `Dining Room debug World View. Robot ${layout.robot.length} by ${layout.robot.width} inches; heading ${Math.round(layout.robot.headingDegrees)} degrees; camera ${layout.camera.mount}, ${layout.camera.head}, ${layout.camera.height} inches. Motion ${motionBlocked ? "blocked" : "clear"}.`,
+      `Dining Room debug World View. Robot ${layout.robot.length} by ${layout.robot.width} inches; heading ${Math.round(layout.robot.headingDegrees)} degrees; camera ${layout.camera.mount}, ${layout.camera.head}, ${layout.camera.height} inches. ${obstructionCountDescription(layout.obstructions)}. Motion ${motionBlocked ? "blocked" : "clear"}.`,
     );
   }
 
@@ -1039,6 +1229,20 @@
     lookForwardButton.setAttribute("aria-pressed", String(headPreset === "forward"));
     lookDown45Button.setAttribute("aria-pressed", String(headPreset === "down45"));
     lookDownButton.setAttribute("aria-pressed", String(headPreset === "down"));
+    const practice = settings.practiceObstructions;
+    const practiceControlsDisabled = !isDining || !isProgramStopped();
+    practiceObstructionsFieldset.hidden = !isDining;
+    practiceObstructionsFieldset.disabled = practiceControlsDisabled;
+    fruitClutterToggle.checked = practice.fruitClutter;
+    roamingRobotToggle.checked = practice.roamingRobot;
+    const practiceMessages = [];
+    if (isDining && practice.fruitClutter && practice.fruit.length < 4) {
+      practiceMessages.push(`Placed ${practice.fruit.length} of 4 fruit props because space was limited.`);
+    }
+    if (isDining && practice.roamingRobot && !practice.roamingStart) {
+      practiceMessages.push("The roaming robot could not be placed because space was limited.");
+    }
+    practiceObstructionsStatus.textContent = practiceMessages.join(" ");
     cameraModeHintElement.textContent = isDining ? "Projected fiducials" : "Drag target";
     cameraHeadingElement.textContent = isDining ? "Dining Room camera" : "Live Camera";
     worldHeadingElement.textContent = isDining ? "Dining Room / robot map" : "Robot / target map";
@@ -1072,6 +1276,9 @@
     if (partial.startPose !== undefined) next.startPose = partial.startPose;
     if (partial.camera) next.camera = { ...next.camera, ...partial.camera };
     if (partial.chassis) next.chassis = { ...next.chassis, ...partial.chassis };
+    if (partial.practiceObstructions) {
+      next.practiceObstructions = clonePracticeObstructions(partial.practiceObstructions);
+    }
     try {
       return applySettings(next, { notify: true, preserveHead: Boolean(options && options.preserveHead) });
     } catch (error) {
@@ -1108,6 +1315,35 @@
         width: Number(chassisWidthInputElement.value)
       }
     }, { preserveHead: true });
+  }
+
+  function showPracticeError(error) {
+    syncSetupControls();
+    practiceObstructionsStatus.textContent = error.message;
+  }
+
+  function handlePracticeObstructionsChange() {
+    try {
+      setPracticeObstructions({
+        fruitClutter: fruitClutterToggle.checked,
+        roamingRobot: roamingRobotToggle.checked
+      });
+    } catch (error) {
+      showPracticeError(error);
+    }
+  }
+
+  function handleRandomizeObstructions() {
+    try {
+      randomizePracticeObstructions();
+    } catch (error) {
+      showPracticeError(error);
+    }
+  }
+
+  function syncProgramState(state) {
+    programStopped = Boolean(state && state.stopped);
+    syncSetupControls();
   }
 
   function pointerToSensorUnits(event) {
@@ -1192,6 +1428,11 @@
     lookForwardButton = document.getElementById("look-forward-button");
     lookDown45Button = document.getElementById("look-down-45-button");
     lookDownButton = document.getElementById("look-down-button");
+    practiceObstructionsFieldset = document.getElementById("practice-obstructions-fieldset");
+    fruitClutterToggle = document.getElementById("fruit-clutter-toggle");
+    roamingRobotToggle = document.getElementById("roaming-robot-toggle");
+    randomizeObstructionsButton = document.getElementById("randomize-obstructions-button");
+    practiceObstructionsStatus = document.getElementById("practice-obstructions-status");
     setupStatusElement = document.getElementById("setup-status");
     cameraModeHintElement = document.getElementById("camera-mode-hint");
     cameraHeadingElement = document.getElementById("camera-heading");
@@ -1206,6 +1447,8 @@
       worldMapMotionElement, sceneSelectElement, startPoseSelectElement,
       chassisLengthInputElement, chassisWidthInputElement, cameraMountSelectElement,
       cameraHeightInputElement, lookForwardButton, lookDown45Button, lookDownButton,
+      practiceObstructionsFieldset, fruitClutterToggle, roamingRobotToggle,
+      randomizeObstructionsButton, practiceObstructionsStatus,
       setupStatusElement, cameraModeHintElement, cameraHeadingElement,
       worldHeadingElement
     ];
@@ -1229,6 +1472,9 @@
     lookForwardButton.addEventListener("click", () => setHeadPreset("forward"));
     lookDown45Button.addEventListener("click", () => setHeadPreset("down45"));
     lookDownButton.addEventListener("click", () => setHeadPreset("down"));
+    fruitClutterToggle.addEventListener("change", handlePracticeObstructionsChange);
+    roamingRobotToggle.addEventListener("change", handlePracticeObstructionsChange);
+    randomizeObstructionsButton.addEventListener("click", handleRandomizeObstructions);
     if ("ResizeObserver" in window) {
       worldResizeObserver = new ResizeObserver(scheduleWorldSurfaceResize);
       worldResizeObserver.observe(worldStageElement);
@@ -1266,6 +1512,9 @@
     hasCapturedSnapshot,
     setSnapshotObjectItem,
     setHeadPreset,
+    setPracticeObstructions,
+    randomizePracticeObstructions,
+    syncProgramState,
     getSettings,
     normalizeSettings,
     applySettings,

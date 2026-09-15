@@ -1,6 +1,6 @@
 # CVS AI Vision Simulator
 
-A small, browser-based educational simulator that lets students use Google Blockly to write programs against simulated, snapshot-based VEX V5 AI Vision Sensor data and control a simulated drivetrain with high-level Drive commands or individual left/right motor commands. It includes the original draggable-ball sandbox and a source-verified **Byte to Bite — Dining Room** fiducial scene with an adjustable chassis.
+A small, browser-based educational simulator that lets students use Google Blockly to write programs against simulated, snapshot-based VEX V5 AI Vision Sensor data and control a simulated drivetrain with high-level Drive commands or individual left/right motor commands. It includes the original draggable-ball sandbox and a source-verified **Byte to Bite — Dining Room** fiducial scene with an adjustable chassis and optional practice obstructions.
 
 The simulator uses lightweight 2D physics plus analytical 3D camera projection to keep robot motion, live preview, detections, and a compact World View synchronized. It does not perform pixel recognition, connect to VEX hardware, or expose debug-world coordinates to student code.
 
@@ -31,18 +31,18 @@ No build command or configuration file is required.
 
 ## Program Storage
 
-- **Save / Load** stores the Blockly program and persistent scene, chassis dimensions, camera mount/height/head, and start setup in this browser and device.
+- **Save / Load** stores the Blockly program and persistent scene, chassis dimensions, camera mount/height/head, start setup, and initial practice-obstruction layout in this browser and device.
 - **Export / Import** downloads or opens a portable `CVS-AI-Vision-Program.json` file with those settings.
 - The desktop programming/simulation split is remembered separately as a device-only view preference. It is never included in saved or exported student programs, and clearing a program does not reset it.
 
-Existing saved and portable projects continue to load without being rewritten. Missing chassis dimensions default to 18 × 18 inches, missing head settings default to Forward, and the existing Look Down block remains the original 60° command. Existing high-level Drive programs retain their behavior. If a project reads an AI Vision reporter before taking a snapshot, it receives a compatibility message so the student can add snapshot capture inside the appropriate sensing loop.
+Existing saved and portable projects continue to load without being rewritten. Missing chassis dimensions default to 18 × 18 inches, missing head settings default to Forward, and missing practice-obstruction settings default to both options off. The existing Look Down block remains the original 60° command, and existing high-level Drive programs retain their behavior. If a project reads an AI Vision reporter before taking a snapshot, it receives a compatibility message so the student can add snapshot capture inside the appropriate sensing loop.
 
 ## Snapshot sensing model
 
 The **Live Camera** preview updates continuously from the simulated world. Blockly does not read that live projection. **Take Snapshot** copies the currently eligible target or fiducial detections into a separate immutable **Last Snapshot** dataset, and every AI Vision reporter reads only that captured dataset.
 
 - A new Run or Reset begins with no captured detection.
-- Take Snapshot replaces the previous dataset; moving the robot, target, or camera head does not change an existing snapshot.
+- Take Snapshot replaces the previous dataset; moving the robot, target, camera head, or roaming practice robot does not change an existing snapshot.
 - Tracking programs should repeat Take Snapshot and check Object Exists before reading object properties. Fiducial programs can read Object Count and select student-facing items 1, 2, and so on.
 - An empty snapshot returns `false` for Object Exists. Program-visible numeric position, size, and confidence fallbacks are `0`, and the internal unavailable ID is `-1`. The Last Snapshot panel displays unavailable properties as a dash rather than as meaningful measurements.
 - The ball sandbox retains its partial-target policy and approximate range. Dining Room fiducials are conservative: a pattern must face the camera, be entirely inside the image, be large enough, and be unobstructed by modeled geometry.
@@ -62,6 +62,12 @@ Chassis dimension changes are allowed only while stopped and are applied only wh
 
 Dining detections analytically project the actual supplied Circle21h7 patterns into the 320 × 240 image and use modeled 3D surfaces for front-face, image-cutoff, projected-size, and occlusion decisions. This approximates VEX-style sensor output; it is not hardware-validated decoding. Confidence is an AI-classification property and is unavailable for Dining Room tags. Tag angle is intentionally not exposed by this simulator.
 
+### Practice obstructions
+
+While stopped, **Fruit Clutter** adds up to four fixed-size stationary fruit props and **Roaming Robot** adds one fixed 18 × 18 inch practice robot. **Randomize** creates a new seeded starting layout and wandering sequence for the enabled options; **Reset** restores that same initial challenge so students can retry it. The controls, seed, and generated initial layout are saved with the project, while the roaming robot's temporary pose and timer are not.
+
+Fruit and the practice robot share the modeled collision and camera-occlusion geometry used by the student robot, walls, tables, and fiducials. They can block movement and camera sightlines, but they are not detected object classes and expose no position, state, or avoidance information to Blockly. Fruit uses simplified solid-obstruction behavior: it does not roll, move, get collected, or get pushed. Placement attempts are bounded; crowded setups can contain fewer fruit with a short status message. Random layouts are not guaranteed to leave a clear route to every table.
+
 The apparent source discrepancy between 54 and 69.625 inches is resolved: 54 inches is the outer long-wall fiducial centerline datum, while 69.625 inches is each transformed wall-panel half length. The assembled long wall is 139.25 inches. Raw CAD/PDF sources are not deployed; only the required extracted marker PNGs and this concise provenance are included.
 
 ## Drive and motor commands
@@ -75,12 +81,14 @@ Wait does not stop the motors, and Pause/Resume preserves the established freeze
 - A touch-friendly Blockly workspace with event, control, logic, AI Vision, Drive, Motors, and output blocks
 - Original draggable target sandbox plus the fixed Byte to Bite Dining Room scene
 - Independently adjustable Dining Room chassis length and width with validated starting clearance
+- Optional seeded fruit clutter and one slowly roaming practice robot, with repeatable Reset
 - One configurable four-side camera with rigid mount and 0°/45°/60° head presets
 - Actual supplied fiducial artwork IDs 0–20 projected from 3D marker geometry
 - A compact top-down, debug-only World View showing the shared robot position, heading, target, and 60-degree horizontal camera field of view
 - An expandable desktop World View beside a camera preview capped at its native 320 × 240 content size, with one mouse-, touch-, and keyboard-accessible layout divider
 - Explicit Take Snapshot sensing with immutable object lists, count, 1-based selection, identity, and image-space values
 - Full-footprint Dining Room wall/table collision with anti-tunneling substeps
+- Shared collision and height-aware camera occlusion for enabled practice obstructions
 - Run, stop, and reset controls
 - A live program output console for the Print blocks
 - The same seven Drive blocks used by CVS Digital Feedback: forward, reverse, left, right, stop, drive speed, and turn speed

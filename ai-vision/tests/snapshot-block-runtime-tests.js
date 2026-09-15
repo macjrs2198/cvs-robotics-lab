@@ -9,6 +9,7 @@ const diningModel = require("../dining-room-model.js");
 const aiVisionRoot = path.join(__dirname, "..");
 const appSource = fs.readFileSync(path.join(aiVisionRoot, "app.js"), "utf8");
 const blocksSource = fs.readFileSync(path.join(aiVisionRoot, "blocks.js"), "utf8");
+const controllerSource = fs.readFileSync(path.join(aiVisionRoot, "dining-room-controller.js"), "utf8");
 const elseIfDiagnosticProgram = JSON.parse(
   fs.readFileSync(path.join(__dirname, "fixtures", "else-if-diagnostic-program.json"), "utf8"),
 );
@@ -26,6 +27,7 @@ const reporterMappings = {
 assert.match(appSource, /const STORAGE_KEY = "vex-ai-vision-simulator-program-v1";/);
 assert.match(appSource, /const PROGRAM_FORMAT = "cvs-robotics-program";/);
 assert.match(appSource, /const PROGRAM_FORMAT_VERSION = 1;/);
+assert.match(appSource, /const APP_VERSION = "5\.0";/);
 
 Object.entries(reporterMappings).forEach(([blockType, sensorProperty]) => {
   assert.match(
@@ -125,6 +127,14 @@ assert.match(appSource, /selectedExists \? safeSensor\.centerX : "\\u2014"/);
 assert.match(appSource, /selectedExists \? safeSensor\.id : "\\u2014"/);
 assert.match(appSource, /scene === DINING_ROOM_SCENE \? FIDUCIAL_SIGNATURE : TARGET_SIGNATURE/);
 assert.match(appSource, /window\.addEventListener\("visionsettingschange"[\s\S]*?stopProgram\("settings changed"\)/);
+assert.match(appSource, /function renderProgramState\(state\)[\s\S]*?VisionSimulator\.syncProgramState\(state\)/);
+assert.match(controllerSource, /advanceRoaming:\s*Boolean\([\s\S]*?cvsProgramControl[\s\S]*?isRunning\(\)/);
+assert.match(controllerSource, /practiceObstructionsChanged[\s\S]*?!isProgramStopped\(\)[\s\S]*?Stop the program before changing practice obstructions/);
+assert.doesNotMatch(
+  blocksSource,
+  /practice_obstruction|fruit_clutter|roaming_robot/i,
+  "practice obstructions must not add Blockly commands or reporters",
+);
 
 function outputConsoleStub() {
   return {
@@ -176,8 +186,21 @@ function makeRuntime() {
     const scene = candidate.scene || "ball";
     const camera = candidate.camera || {};
     const chassis = candidate.chassis || {};
+    const practice = candidate.practiceObstructions || {};
     const head = camera.head === undefined ? "forward" : camera.head;
     if (!["forward", "down45", "down"].includes(head)) throw new Error("invalid camera head");
+    const fruitClutter = practice.fruitClutter === undefined ? false : practice.fruitClutter;
+    const roamingRobot = practice.roamingRobot === undefined ? false : practice.roamingRobot;
+    if (typeof fruitClutter !== "boolean" || typeof roamingRobot !== "boolean") {
+      throw new Error("invalid practice obstruction flags");
+    }
+    const seed = practice.seed === undefined ? 0x43565331 : Number(practice.seed);
+    if (!Number.isSafeInteger(seed) || seed < 0 || seed > 0xffffffff) {
+      throw new Error("invalid practice obstruction seed");
+    }
+    const fruit = practice.fruit === undefined ? [] : practice.fruit;
+    if (!Array.isArray(fruit)) throw new Error("invalid practice fruit placements");
+    const roamingStart = practice.roamingStart === undefined ? null : practice.roamingStart;
 
     const normalizeDimension = (value) => {
       const numeric = value === undefined ? 18 : Number(value);
@@ -208,6 +231,13 @@ function makeRuntime() {
       diningStartPose: scene === "byte-to-bite-dining-room"
         ? startPose
         : candidate.diningStartPose || "table-4-north",
+      practiceObstructions: {
+        fruitClutter,
+        roamingRobot,
+        seed,
+        fruit: cloneSettings(fruit),
+        roamingStart: roamingStart === null ? null : cloneSettings(roamingStart),
+      },
     };
   };
   const context = {
@@ -472,7 +502,14 @@ function testTransactionalSettings() {
     chassis: { length: 18, width: 18 },
     startPose: "table-4-north",
     diningStartPose: "table-4-north",
-  }, "legacy settings must gain only the safe camera-head and chassis defaults");
+    practiceObstructions: {
+      fruitClutter: false,
+      roamingRobot: false,
+      seed: 0x43565331,
+      fruit: [],
+      roamingStart: null,
+    },
+  }, "legacy settings must gain safe camera, chassis, and disabled practice-obstruction defaults");
   assert.throws(
     () => runtime.normalizeProgramSettings({ camera: { head: "down30" } }),
     /invalid camera head/,
@@ -485,12 +522,23 @@ function testTransactionalSettings() {
     () => runtime.normalizeProgramSettings({ chassis: { length: 18.25, width: 18 } }),
     /invalid chassis dimension/,
   );
+  assert.throws(
+    () => runtime.normalizeProgramSettings({ practiceObstructions: { fruitClutter: "yes" } }),
+    /invalid practice obstruction flags/,
+  );
 
   const normalized = runtime.normalizeProgramSettings({
     scene: "byte-to-bite-dining-room",
     camera: { mount: "rear", height: 17.5, head: "down45" },
     chassis: { length: 12, width: 10 },
     startPose: "table-4-north",
+    practiceObstructions: {
+      fruitClutter: true,
+      roamingRobot: true,
+      seed: 1234,
+      fruit: [{ id: "fruit-1", x: 20, y: 20 }],
+      roamingStart: { x: -20, y: -20, heading: 0 },
+    },
   });
   runtime.replaceProgramTransactionally(
     { blocks: { blocks: [{ type: "vision_take_snapshot" }] } },
@@ -533,6 +581,18 @@ function testTransactionalSettings() {
   assert.equal(appliedSettings.length, applicationsBeforeInvalid, "invalid settings must fail before application");
   assert.deepEqual(workspace.state, workspaceBeforeInvalid, "invalid settings must not partially replace the workspace");
 
+  assert.throws(
+    () => runtime.replaceProgramTransactionally(
+      { blocks: { blocks: [{ type: "must-not-load" }] } },
+      runtime.normalizeProgramSettings({
+        practiceObstructions: { fruitClutter: true, seed: -1 },
+      }),
+    ),
+    /invalid practice obstruction seed/,
+  );
+  assert.equal(appliedSettings.length, applicationsBeforeInvalid, "invalid obstruction settings must fail before application");
+  assert.deepEqual(workspace.state, workspaceBeforeInvalid, "invalid obstruction settings must not partially replace the workspace");
+
   order.length = 0;
   runtime.replaceProgramTransactionally(
     { blocks: { blocks: [{ type: "vision_take_snapshot" }] } },
@@ -544,6 +604,13 @@ function testTransactionalSettings() {
     chassis: { length: 18, width: 18 },
     startPose: "ball-default",
     diningStartPose: "table-4-north",
+    practiceObstructions: {
+      fruitClutter: false,
+      roamingRobot: false,
+      seed: 0x43565331,
+      fruit: [],
+      roamingStart: null,
+    },
   }, "raw legacy saves restore their original Ball scene with compatible defaults");
   assert.equal(
     workspace.state.blocks.blocks[0].fields.SIGNATURE,
@@ -834,7 +901,7 @@ async function main() {
 
   console.log("PASS: VEX-style snapshot, three camera-head commands, and individual motor blocks are wired");
   console.log("PASS: legacy snapshots default by scene and raw saved workspaces remain loadable");
-  console.log("PASS: camera-head and chassis settings validate, persist, and roll back transactionally");
+  console.log("PASS: camera-head, chassis, and practice-obstruction settings validate, persist, and roll back transactionally");
   console.log("PASS: Blockly IF / ELSE IF / ELSE execution preserves nesting, waits, pause/resume, and Stop");
   console.log("PASS: Last Snapshot guidance, fallbacks, and portable format version 1 remain compatible");
 }

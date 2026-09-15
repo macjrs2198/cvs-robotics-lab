@@ -737,4 +737,412 @@ function projectionFor(sceneProjection, id) {
   console.log("PASS: World View and real projection distinguish 0°, 45°, and legacy 60° head transforms without moving chassis");
 }
 
+{
+  assert.equal(model.config.practiceFruitCount, 4);
+  assert.equal(model.config.practiceFruitRadius, 2);
+  assert.equal(model.config.practiceFruitHeight, 4);
+  assert.equal(model.config.practiceRobotLength, 18);
+  assert.equal(model.config.practiceRobotWidth, 18);
+  assert.equal(model.config.practiceRobotTopZ, 4.5);
+  assert.equal(model.config.practicePlacementAttempts, 120);
+  assert.equal(model.config.practiceDefaultSeed, 0x43565331);
+  const clean = model.createState();
+  assert.deepEqual(clean.practiceObstructions, {
+    fruitClutter: false,
+    roamingRobot: false,
+    seed: 0x43565331,
+    fruit: [],
+    roamingStart: null
+  });
+  assert.deepEqual(clean.practiceRuntime, { roaming: null });
+  assert.deepEqual(model.projectScene(clean).obstructions, []);
+  assert.deepEqual(model.layoutWorldView(clean).obstructions, []);
+  console.log("PASS: legacy/missing Practice Obstructions data defaults to the unchanged clean arena");
+}
+
+{
+  const context = {
+    robot: model.startPoses.find((pose) => pose.id === "center-lane-northwest"),
+    chassis: { length: 18, width: 18 },
+    seed: 25
+  };
+  const fruitOnly = model.createPracticeObstructions(
+    { fruitClutter: true, roamingRobot: false },
+    context
+  );
+  const fruitAgain = model.createPracticeObstructions(
+    { fruitClutter: true, roamingRobot: false },
+    context
+  );
+  const roamingOnly = model.createPracticeObstructions(
+    { fruitClutter: false, roamingRobot: true },
+    context
+  );
+  const together = model.createPracticeObstructions(
+    { fruitClutter: true, roamingRobot: true },
+    context
+  );
+  const randomized = model.createPracticeObstructions(
+    { fruitClutter: true, roamingRobot: true },
+    { ...context, seed: 26 }
+  );
+
+  assert.deepEqual(fruitOnly, fruitAgain, "the same seed must reproduce the same initial layout");
+  assert.equal(fruitOnly.fruit.length, 4);
+  assert.equal(fruitOnly.roamingStart, null);
+  assert.deepEqual(roamingOnly.fruit, []);
+  assert.ok(roamingOnly.roamingStart);
+  assert.equal(together.fruit.length, 4);
+  assert.ok(together.roamingStart);
+  assert.notDeepEqual(together, randomized, "a new seed must change placement and the wander stream");
+
+  [fruitOnly, roamingOnly, together, randomized].forEach((practice) => {
+    const state = model.createState({
+      startPoseId: "center-lane-northwest",
+      chassis: context.chassis,
+      practiceObstructions: practice
+    });
+    assert.equal(model.collisionForPose(state), null);
+    const projection = model.projectScene(state);
+    assert.equal(
+      projection.obstructions.length,
+      practice.fruit.length + (practice.roamingStart ? 1 : 0)
+    );
+    assert.equal(
+      projection.detections.every((detection) => detection.type === "fiducial"),
+      true,
+      "practice props must never become recognized object records"
+    );
+  });
+
+  const fourCornerOpenings = [
+    { minimumX: -66, maximumX: -38, minimumY: 38, maximumY: 66 },
+    { minimumX: 38, maximumX: 66, minimumY: 38, maximumY: 66 },
+    { minimumX: -66, maximumX: -38, minimumY: -66, maximumY: -38 },
+    { minimumX: 38, maximumX: 66, minimumY: -66, maximumY: -38 }
+  ];
+  const openingRegression = model.createPracticeObstructions(
+    { fruitClutter: true, roamingRobot: true },
+    { ...context, seed: 2 }
+  );
+  const openingProjection = model.projectScene(model.createState({
+    startPoseId: "center-lane-northwest",
+    practiceObstructions: openingRegression
+  }));
+  openingProjection.obstructions.forEach((obstruction) => {
+    obstruction.footprint.forEach((point) => {
+      assert.equal(
+        fourCornerOpenings.some((opening) =>
+          point.x >= opening.minimumX && point.x <= opening.maximumX &&
+          point.y >= opening.minimumY && point.y <= opening.maximumY
+        ),
+        false,
+        `${obstruction.id} must leave all four real corner openings clear`
+      );
+    });
+  });
+  console.log("PASS: seeded generation is repeatable, randomizable, and supports both obstruction toggles independently");
+}
+
+{
+  const chassisCases = [
+    { length: 6, width: 6 },
+    { length: 18, width: 18 },
+    { length: 30, width: 12 },
+    { length: 12, width: 30 },
+    { length: 24, width: 24 }
+  ];
+  chassisCases.forEach((chassis, chassisIndex) => {
+    const start = model.startPoses.find((pose) => model.isPoseValid({ robot: pose, chassis }));
+    assert.ok(start, `expected a valid start for ${chassis.length} × ${chassis.width}`);
+    [3, 17, 81].forEach((seed) => {
+      const practice = model.createPracticeObstructions(
+        { fruitClutter: true, roamingRobot: true },
+        { robot: start, chassis, seed: seed + chassisIndex }
+      );
+      assert.doesNotThrow(() => model.createState({
+        startPoseId: start.id,
+        chassis,
+        practiceObstructions: practice
+      }));
+    });
+  });
+
+  const invalidFruit = {
+    fruitClutter: true,
+    roamingRobot: false,
+    seed: 1,
+    fruit: [{ id: "fruit-1", kind: "practice-fruit", x: 0, y: 0 }],
+    roamingStart: null
+  };
+  assert.throws(
+    () => model.createState({ practiceObstructions: invalidFruit }),
+    /Fruit prop fruit-1 overlaps/
+  );
+  assert.throws(
+    () => model.normalizePracticeObstructions({
+      fruitClutter: true,
+      roamingRobot: false,
+      seed: 1,
+      fruit: [{ id: "fruit-1", kind: "practice-fruit", x: NaN, y: 8 }],
+      roamingStart: null
+    }, { robot: model.startPoses[0], chassis: { length: 18, width: 18 } }),
+    /finite coordinates/
+  );
+  const strictContext = { robot: model.startPoses[0], chassis: { length: 18, width: 18 } };
+  const validFruit = model.createPracticeObstructions(
+    { fruitClutter: true, roamingRobot: false },
+    { ...strictContext, seed: 1 }
+  );
+  assert.throws(
+    () => model.normalizePracticeObstructions({ ...validFruit, seed: null }, strictContext),
+    /unsigned 32-bit integer/
+  );
+  assert.throws(
+    () => model.normalizePracticeObstructions({
+      ...validFruit,
+      fruit: validFruit.fruit.map((item, index) => index === 0 ? { ...item, x: String(item.x) } : item)
+    }, strictContext),
+    /finite coordinates/
+  );
+  assert.throws(
+    () => model.normalizePracticeObstructions({
+      fruitClutter: false,
+      roamingRobot: true,
+      seed: 1,
+      fruit: [],
+      roamingStart: { x: 0, y: 16, heading: -Math.PI / 2 }
+    }, { robot: model.startPoses[0], chassis: { length: 18, width: 18 } }),
+    /Roaming Robot start overlaps/
+  );
+  const hugeHeadingContext = strictContext;
+  const validRoaming = model.createPracticeObstructions(
+    { fruitClutter: false, roamingRobot: true },
+    { ...hugeHeadingContext, seed: 1 }
+  );
+  assert.throws(
+    () => model.normalizePracticeObstructions({
+      ...validRoaming,
+      roamingStart: { ...validRoaming.roamingStart, heading: false }
+    }, hugeHeadingContext),
+    /finite x, y, and heading/
+  );
+  const hugeHeading = model.normalizePracticeObstructions({
+    fruitClutter: false,
+    roamingRobot: true,
+    seed: 1,
+    fruit: [],
+    roamingStart: { ...validRoaming.roamingStart, heading: 1e308 }
+  }, hugeHeadingContext);
+  assert.ok(
+    Number.isFinite(hugeHeading.roamingStart.heading) &&
+      hugeHeading.roamingStart.heading > -Math.PI &&
+      hugeHeading.roamingStart.heading <= Math.PI,
+    "extreme finite saved headings must normalize in bounded time"
+  );
+  console.log("PASS: generated layouts validate across chassis sizes while malformed or overlapping saved layouts reject strictly");
+}
+
+{
+  const practice = {
+    fruitClutter: true,
+    roamingRobot: false,
+    seed: 41,
+    fruit: [{ id: "fruit-1", kind: "practice-fruit", x: -18, y: 2.5 }],
+    roamingStart: null
+  };
+  const state = model.createState({
+    startPoseId: "center-lane-northwest",
+    practiceObstructions: practice
+  });
+  const command = Object.freeze({ leftOutput: 100, rightOutput: 100 });
+  const hit = model.integrateScene(state, command, 0.5, { advanceRoaming: true });
+  assert.equal(hit.blocked, true);
+  assert.deepEqual(hit.collision, { kind: "fruit", id: "fruit-1" });
+  assert.ok(hit.state.robot.y > 2.5);
+  assert.deepEqual(command, { leftOutput: 100, rightOutput: 100 }, "collision must not steer or rewrite student commands");
+  const retreat = model.integrateScene(
+    hit.state,
+    { leftOutput: -100, rightOutput: -100 },
+    0.05,
+    { advanceRoaming: true }
+  );
+  assert.equal(retreat.blocked, false);
+  assert.ok(retreat.state.robot.y > hit.state.robot.y);
+  console.log("PASS: stationary fruit blocks swept student motion without pushing, steering, or changing motor commands");
+}
+
+{
+  const practice = {
+    fruitClutter: false,
+    roamingRobot: true,
+    seed: 7,
+    fruit: [],
+    roamingStart: { x: -18, y: -18, heading: Math.PI / 2 }
+  };
+  const state = model.createState({
+    startPoseId: "center-lane-northwest",
+    practiceObstructions: practice
+  });
+  const collision = model.integrateScene(
+    state,
+    { leftOutput: 100, rightOutput: 100 },
+    0.5,
+    { advanceRoaming: true }
+  );
+  assert.equal(collision.blocked, true);
+  assert.deepEqual(collision.collision, { kind: "roaming-robot", id: "roaming-robot" });
+  assert.equal(collision.roamingBlocked, true);
+  assert.deepEqual(collision.roamingCollision, { kind: "student-robot", id: "student-robot" });
+  assert.equal(model.collisionForPose(collision.state), null, "the accepted joint state must not overlap");
+  assert.ok(
+    Math.hypot(
+      collision.state.practiceRuntime.roaming.pose.x - practice.roamingStart.x,
+      collision.state.practiceRuntime.roaming.pose.y - practice.roamingStart.y
+    ) <= model.config.practiceForwardOutput / 100 * model.config.maxLinearSpeed * 0.5 + 0.000001,
+    "the roaming robot must move continuously rather than teleport"
+  );
+  console.log("PASS: shared motion substeps reject a same-tick robot collision without overlap, tunneling, pushing, or teleportation");
+}
+
+{
+  const start = model.startPoses.find((pose) => pose.id === "center-lane-northwest");
+  const practice = model.createPracticeObstructions(
+    { fruitClutter: true, roamingRobot: true },
+    { robot: start, chassis: { length: 18, width: 18 }, seed: 2 }
+  );
+  let withRendering = model.createState({ startPoseId: start.id, practiceObstructions: practice });
+  let withoutRendering = model.createState({ startPoseId: start.id, practiceObstructions: practice });
+  const initialRuntime = clone(withRendering.practiceRuntime);
+
+  const frozen = model.integrateScene(
+    withRendering,
+    { leftOutput: 0, rightOutput: 0 },
+    1,
+    { advanceRoaming: false }
+  );
+  assert.deepEqual(frozen.state.practiceRuntime, initialRuntime, "paused/stopped time must not advance roaming state");
+
+  for (let index = 0; index < 300; index += 1) {
+    model.projectScene(withRendering);
+    model.layoutWorldView(withRendering);
+    withRendering = model.integrateScene(
+      withRendering,
+      { leftOutput: 0, rightOutput: 0 },
+      0.05,
+      { advanceRoaming: true }
+    ).state;
+    withoutRendering = model.integrateScene(
+      withoutRendering,
+      { leftOutput: 0, rightOutput: 0 },
+      0.05,
+      { advanceRoaming: true }
+    ).state;
+    assert.equal(model.collisionForPose(withRendering), null);
+  }
+  assert.deepEqual(withRendering.practiceRuntime, withoutRendering.practiceRuntime);
+  assert.notDeepEqual(withRendering.practiceRuntime, initialRuntime);
+
+  const reset = model.createState({ startPoseId: start.id, practiceObstructions: practice });
+  assert.deepEqual(reset.practiceRuntime, initialRuntime, "Reset must replay the saved scenario rather than reshuffle it");
+  assert.deepEqual(reset.practiceObstructions, practice);
+  console.log("PASS: wandering is seeded and simulation-time-driven; rendering is inert and Reset exactly reconstructs the scenario");
+}
+
+{
+  const practice = {
+    fruitClutter: false,
+    roamingRobot: true,
+    seed: 1,
+    fruit: [],
+    roamingStart: { x: 56.5, y: 18, heading: 0 }
+  };
+  const initial = model.createState({ practiceObstructions: practice });
+  initial.practiceRuntime.roaming.remainingSeconds = 1;
+  const single = model.integrateScene(
+    initial,
+    { leftOutput: 0, rightOutput: 0 },
+    1,
+    { advanceRoaming: true }
+  ).state;
+  // Give the split run the same explicit one-second initial decision timer.
+  const splitInitial = model.createState({ practiceObstructions: practice });
+  splitInitial.practiceRuntime.roaming.remainingSeconds = 1;
+  const splitFirst = model.integrateScene(
+    splitInitial,
+    { leftOutput: 0, rightOutput: 0 },
+    0.5,
+    { advanceRoaming: true }
+  ).state;
+  const splitFinal = model.integrateScene(
+    splitFirst,
+    { leftOutput: 0, rightOutput: 0 },
+    0.5,
+    { advanceRoaming: true }
+  ).state;
+  const singleRoaming = single.practiceRuntime.roaming;
+  const splitRoaming = splitFinal.practiceRuntime.roaming;
+  nearlyEqual(singleRoaming.pose.x, splitRoaming.pose.x, 0.000001);
+  nearlyEqual(singleRoaming.pose.y, splitRoaming.pose.y, 0.000001);
+  nearlyEqual(singleRoaming.pose.heading, splitRoaming.pose.heading, 0.000001);
+  nearlyEqual(singleRoaming.remainingSeconds, splitRoaming.remainingSeconds, 0.000001);
+  assert.equal(singleRoaming.mode, splitRoaming.mode);
+  assert.equal(singleRoaming.randomState, splitRoaming.randomState);
+  assert.equal(model.collisionForPose(single), null);
+  assert.equal(model.collisionForPose(splitFinal), null);
+  console.log("PASS: blocked roaming motion consumes only actual collision time and is stable across frame cadence");
+}
+
+{
+  const wallFruit = {
+    fruitClutter: true,
+    roamingRobot: false,
+    seed: 99,
+    fruit: [{ id: "fruit-1", kind: "practice-fruit", x: 9, y: 46.5 }],
+    roamingStart: null
+  };
+  const clearWallState = model.createState({
+    robot: { x: 0, y: 18, heading: 0 },
+    camera: { mount: "left", height: 12, head: "forward" }
+  });
+  const fruitWallState = model.createState({
+    robot: { x: 0, y: 18, heading: 0 },
+    camera: { mount: "left", height: 12, head: "forward" },
+    practiceObstructions: wallFruit
+  });
+  assert.deepEqual(model.detectFiducials(clearWallState).map((item) => item.id), [9, 10]);
+  assert.deepEqual(model.detectFiducials(fruitWallState).map((item) => item.id), [9, 10]);
+
+  const occludingStart = model.startPoses.find((pose) => pose.id === "center-lane-northwest");
+  const occludingFruit = model.createPracticeObstructions(
+    { fruitClutter: true, roamingRobot: false },
+    { robot: occludingStart, chassis: { length: 18, width: 18 }, seed: 25 }
+  );
+  const clearTableState = model.createState({
+    startPoseId: occludingStart.id,
+    camera: { mount: "front", height: 5.5, head: "forward" }
+  });
+  const fruitTableState = model.createState({
+    startPoseId: occludingStart.id,
+    camera: { mount: "front", height: 5.5, head: "forward" },
+    practiceObstructions: occludingFruit
+  });
+  assert.ok(model.detectFiducials(clearTableState).some((item) => item.id === 6));
+  const fruitProjection = model.projectScene(fruitTableState);
+  assert.equal(fruitProjection.detections.some((item) => item.id === 6), false);
+  assert.deepEqual(projectionFor(fruitProjection, 6).rejectionReasons, ["occluded"]);
+
+  fruitProjection.obstructions.forEach((obstruction) => {
+    assert.ok(Array.isArray(obstruction.footprint) && obstruction.footprint.length >= 12);
+    assert.equal(obstruction.minimumZ, 0);
+    assert.ok(obstruction.maximumZ > 0);
+  });
+  const worldLayout = model.layoutWorldView(fruitTableState);
+  assert.equal(worldLayout.obstructions.length, 4);
+  assert.ok(worldLayout.obstructions.every((item) => item.footprint.every((point) =>
+    Number.isFinite(point.x) && Number.isFinite(point.y)
+  )));
+  console.log("PASS: low fruit uses its real height, can occlude floor tags, cannot falsely hide elevated wall tags, and supplies shared render geometry");
+}
+
 console.log("All dining-room model tests passed.");

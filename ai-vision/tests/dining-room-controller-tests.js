@@ -6,9 +6,26 @@ const path = require("node:path");
 const vm = require("node:vm");
 
 const aiVisionRoot = path.join(__dirname, "..");
+const controllerSource = fs.readFileSync(path.join(aiVisionRoot, "dining-room-controller.js"), "utf8");
 const events = [];
 let drivetrainStops = 0;
 let programStopped = true;
+let programPaused = false;
+const DEFAULT_PRACTICE_OBSTRUCTIONS = Object.freeze({
+  fruitClutter: false,
+  roamingRobot: false,
+  seed: 0x43565331,
+  fruit: Object.freeze([]),
+  roamingStart: null,
+});
+
+function plain(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function defaultPracticeObstructions() {
+  return plain(DEFAULT_PRACTICE_OBSTRUCTIONS);
+}
 const drivetrain = {
   driveSpeed: 50,
   turnSpeed: 30,
@@ -31,7 +48,10 @@ const browserWindow = {
       return programStopped;
     },
     isPaused() {
-      return false;
+      return programPaused;
+    },
+    isRunning() {
+      return !programStopped && !programPaused;
     },
   },
   dispatchEvent(event) {
@@ -75,6 +95,7 @@ const simulator = browserWindow.VisionSimulator;
       chassis: { length: 18, width: 18 },
       startPose: "ball-default",
       diningStartPose: "table-4-north",
+      practiceObstructions: defaultPracticeObstructions(),
     },
   );
   const target = simulator.takeSnapshot("TARGET");
@@ -156,6 +177,7 @@ const simulator = browserWindow.VisionSimulator;
       chassis: { length: 18, width: 18 },
       startPose: expected.id,
       diningStartPose: expected.id,
+      practiceObstructions: defaultPracticeObstructions(),
     };
     assert.deepEqual(JSON.parse(JSON.stringify(simulator.applySettings(savedSettings))), savedSettings);
 
@@ -289,6 +311,7 @@ const simulator = browserWindow.VisionSimulator;
     chassis: { length: 18, width: 18 },
     startPose: "center-lane-northwest",
     diningStartPose: "center-lane-northwest",
+    practiceObstructions: defaultPracticeObstructions(),
   });
   assert.equal(drivetrain.leftOutput, 0);
   assert.equal(drivetrain.rightOutput, 0);
@@ -299,6 +322,7 @@ const simulator = browserWindow.VisionSimulator;
     chassis: { length: 18, width: 18 },
     startPose: "center-lane-northwest",
     diningStartPose: "center-lane-northwest",
+    practiceObstructions: defaultPracticeObstructions(),
   });
   assert.equal(Object.prototype.hasOwnProperty.call(applied, "motors"), false);
   console.log("PASS: persistent settings include chassis/head but omit runtime motors/detections and setup changes clear transient state");
@@ -370,6 +394,130 @@ const simulator = browserWindow.VisionSimulator;
 }
 
 {
+  simulator.applySettings({
+    scene: "byte-to-bite-dining-room",
+    camera: { mount: "front", height: 12, head: "forward" },
+    chassis: { length: 18, width: 18 },
+    startPose: "center-lane-northwest",
+  });
+  assert.equal(simulator.getLiveProjection().obstructions.length, 0);
+
+  const fruitOnly = simulator.setPracticeObstructions({ fruitClutter: true, roamingRobot: false });
+  assert.equal(fruitOnly.practiceObstructions.fruitClutter, true);
+  assert.equal(fruitOnly.practiceObstructions.roamingRobot, false);
+  assert.equal(fruitOnly.practiceObstructions.fruit.length, 4);
+  assert.equal(fruitOnly.practiceObstructions.roamingStart, null);
+  assert.equal(simulator.getLiveProjection().obstructions.length, 4);
+
+  const roamingOnly = simulator.setPracticeObstructions({ fruitClutter: false, roamingRobot: true });
+  assert.equal(roamingOnly.practiceObstructions.fruit.length, 0);
+  assert.ok(roamingOnly.practiceObstructions.roamingStart);
+  assert.deepEqual(
+    plain(simulator.getLiveProjection().obstructions.map((item) => item.kind)),
+    ["roaming-robot"],
+  );
+
+  const both = simulator.setPracticeObstructions({ fruitClutter: true, roamingRobot: true });
+  assert.equal(both.practiceObstructions.fruit.length, 4);
+  assert.ok(both.practiceObstructions.roamingStart);
+  assert.equal(simulator.getLiveProjection().obstructions.length, 5);
+
+  const externalCopy = simulator.getSettings();
+  externalCopy.practiceObstructions.fruit[0].x = 9999;
+  externalCopy.practiceObstructions.roamingStart.x = 9999;
+  assert.notEqual(simulator.getSettings().practiceObstructions.fruit[0].x, 9999);
+  assert.notEqual(simulator.getSettings().practiceObstructions.roamingStart.x, 9999);
+  console.log("PASS: practice options are independent, default-clean, and deeply copied from persistent settings");
+}
+
+{
+  const initialSettings = simulator.getSettings();
+  const initialObstructions = plain(simulator.getLiveProjection().obstructions);
+  const captured = simulator.takeSnapshot("FIDUCIAL_IDS");
+  const capturedObjects = JSON.stringify(captured.objects);
+  const initialRoaming = initialObstructions.find((item) => item.kind === "roaming-robot");
+
+  programStopped = false;
+  programPaused = false;
+  for (let index = 0; index < 20; index += 1) simulator.step(0.05);
+  const movingRoaming = plain(simulator.getLiveProjection().obstructions)
+    .find((item) => item.kind === "roaming-robot");
+  assert.notDeepEqual(
+    { x: movingRoaming.x, y: movingRoaming.y, heading: movingRoaming.heading },
+    { x: initialRoaming.x, y: initialRoaming.y, heading: initialRoaming.heading },
+  );
+  assert.strictEqual(simulator.getSnapshot(), captured);
+  assert.equal(JSON.stringify(simulator.getSnapshot().objects), capturedObjects);
+
+  programPaused = true;
+  const pausedRoaming = plain(movingRoaming);
+  for (let index = 0; index < 20; index += 1) simulator.step(0.05);
+  assert.deepEqual(
+    plain(simulator.getLiveProjection().obstructions).find((item) => item.kind === "roaming-robot"),
+    pausedRoaming,
+  );
+
+  programPaused = false;
+  simulator.step(0.05);
+  programStopped = true;
+  const stoppedRoaming = plain(simulator.getLiveProjection().obstructions)
+    .find((item) => item.kind === "roaming-robot");
+  for (let index = 0; index < 20; index += 1) simulator.step(0.05);
+  assert.deepEqual(
+    plain(simulator.getLiveProjection().obstructions).find((item) => item.kind === "roaming-robot"),
+    stoppedRoaming,
+  );
+
+  simulator.resetWorld();
+  assert.deepEqual(plain(simulator.getLiveProjection().obstructions), initialObstructions);
+  assert.deepEqual(plain(simulator.getSettings()), plain(initialSettings));
+  assert.equal(simulator.hasCapturedSnapshot(), false);
+
+  const randomized = simulator.randomizePracticeObstructions();
+  assert.notEqual(randomized.practiceObstructions.seed, initialSettings.practiceObstructions.seed);
+  assert.notDeepEqual(plain(simulator.getLiveProjection().obstructions), initialObstructions);
+  const randomizedInitial = plain(simulator.getLiveProjection().obstructions);
+  simulator.step(0.05);
+  simulator.resetWorld();
+  assert.deepEqual(plain(simulator.getLiveProjection().obstructions), randomizedInitial);
+  console.log("PASS: roaming follows run/pause/stop state; snapshots stay historical; Randomize changes and Reset repeats the scenario");
+}
+
+{
+  simulator.takeSnapshot("FIDUCIAL_IDS");
+  const beforeSettings = plain(simulator.getSettings());
+  const beforeObstructions = plain(simulator.getLiveProjection().obstructions);
+  const beforeSnapshot = simulator.getSnapshot();
+  const eventCount = events.length;
+  const stopCount = drivetrainStops;
+  programStopped = false;
+  assert.throws(
+    () => simulator.setPracticeObstructions({ fruitClutter: false, roamingRobot: false }),
+    /Stop the program before changing practice obstructions/,
+  );
+  assert.throws(
+    () => simulator.randomizePracticeObstructions(),
+    /Stop the program before randomizing practice obstructions/,
+  );
+  programStopped = true;
+  assert.deepEqual(plain(simulator.getSettings()), beforeSettings);
+  assert.deepEqual(plain(simulator.getLiveProjection().obstructions), beforeObstructions);
+  assert.strictEqual(simulator.getSnapshot(), beforeSnapshot);
+  assert.equal(events.length, eventCount);
+  assert.equal(drivetrainStops, stopCount);
+  console.log("PASS: running practice-control changes are rejected atomically without stopping work or replacing snapshots");
+}
+
+{
+  assert.match(controllerSource, /diningProjection\.obstructions\.forEach/);
+  assert.match(controllerSource, /layout\.obstructions\.forEach/);
+  assert.match(controllerSource, /function obstructionCountDescription[\s\S]*?fruit prop[\s\S]*?roaming robot/);
+  assert.match(controllerSource, /Live projected Dining Room camera[\s\S]*?obstructionCountDescription\(diningProjection\.obstructions\)/);
+  assert.match(controllerSource, /Dining Room debug World View[\s\S]*?obstructionCountDescription\(layout\.obstructions\)/);
+  console.log("PASS: both canvases render modeled obstructions and expose concise obstruction counts");
+}
+
+{
   simulator.applySettings({});
   const projection = simulator.resetWorld();
   assert.ok(projection.detection);
@@ -380,6 +528,7 @@ const simulator = browserWindow.VisionSimulator;
       chassis: { length: 18, width: 18 },
       startPose: "ball-default",
       diningStartPose: "table-4-north",
+      practiceObstructions: defaultPracticeObstructions(),
   });
   assert.equal(simulator.takeSnapshot().type, "target");
   console.log("PASS: old empty settings safely restore the unchanged ball sandbox");

@@ -29,11 +29,11 @@
       }),
       Object.freeze({
         heading: "Live Camera and explicit snapshots",
-        body: "The preview is live, but program readings change only after Take Snapshot. Moving the robot or camera head does not alter the captured values. Check Object Exists; in the Dining Room, read Count, then select item 1, 2, and so on before checking its fiducial ID or image position.",
+        body: "The preview is live, but program readings change only after Take Snapshot. Moving the robot or camera head does not alter captured values. Check Object Exists; in the Dining Room, read Count, then select item 1, 2, and so on. Cut-off, rear-facing, too-small, or obstructed fiducials are omitted.",
       }),
       Object.freeze({
-        heading: "Fiducial limits",
-        body: "Dining markers model VEX Circle21h7 AprilTag IDs 0–20. Cut-off, rear-facing, too-small, or obstructed patterns are omitted; confidence is not reported for tags.",
+        heading: "Set a repeatable practice challenge",
+        body: "While stopped in the Dining Room, turn on Fruit Clutter and/or Roaming Robot, then choose Randomize for a new layout. Reset retries the same layout. Props obstruct movement and camera sightlines but are not detected object classes.",
       }),
       Object.freeze({
         heading: "World View is a debug view",

@@ -48,6 +48,30 @@
   const ROBOT_CORNER_RADIUS = 2;
   const ROBOT_TOP_Z = 4.5;
   const ROBOT_CORNER_SEGMENTS = 8;
+  const PRACTICE_FRUIT_COUNT = 4;
+  const PRACTICE_FRUIT_RADIUS = 2;
+  const PRACTICE_FRUIT_HEIGHT = 4;
+  const PRACTICE_FRUIT_SEGMENTS = 12;
+  const PRACTICE_ROBOT_LENGTH = 18;
+  const PRACTICE_ROBOT_WIDTH = 18;
+  const PRACTICE_ROBOT_CORNER_RADIUS = 2;
+  const PRACTICE_ROBOT_TOP_Z = 4.5;
+  const PRACTICE_START_CLEARANCE = 4;
+  const PRACTICE_PLACEMENT_ATTEMPTS = 120;
+  const PRACTICE_POSITION_STEP = 0.5;
+  const PRACTICE_DEFAULT_SEED = 0x43565331;
+  const PRACTICE_FORWARD_OUTPUT = 8;
+  const PRACTICE_TURN_OUTPUT = 10;
+  const PRACTICE_REVERSE_OUTPUT = 6;
+  const PRACTICE_FORWARD_MIN_SECONDS = 1.5;
+  const PRACTICE_FORWARD_MAX_SECONDS = 3.5;
+  const PRACTICE_WAIT_MIN_SECONDS = 0.2;
+  const PRACTICE_WAIT_MAX_SECONDS = 0.55;
+  const PRACTICE_REVERSE_MIN_SECONDS = 0.3;
+  const PRACTICE_REVERSE_MAX_SECONDS = 0.7;
+  const PRACTICE_TURN_MIN_DEGREES = 35;
+  const PRACTICE_TURN_MAX_DEGREES = 115;
+  const PRACTICE_MAX_CONTROLLER_TRANSITIONS = 12;
   const MAX_LINEAR_SPEED = 100;
   const DRIVE_TRACK_WIDTH = 70;
   const MAX_TRANSLATION_SUBSTEP = 0.5;
@@ -84,6 +108,45 @@
     kind: "simulation-boundary"
   });
 
+  const PRACTICE_BOUNDARY = Object.freeze({
+    minimumX: -WALL_INNER_HALF_SPAN,
+    maximumX: WALL_INNER_HALF_SPAN,
+    minimumY: -WALL_INNER_HALF_SPAN,
+    maximumY: WALL_INNER_HALF_SPAN,
+    kind: "practice-boundary"
+  });
+
+  const PRACTICE_ENTRANCE_CLEARANCES = Object.freeze([
+    deepFreeze({
+      id: "top-left-opening-clearance",
+      minimumX: -WALL_INNER_HALF_SPAN,
+      maximumX: -WALL_SHORT_HALF_LENGTH + PRACTICE_START_CLEARANCE,
+      minimumY: WALL_SHORT_HALF_LENGTH - PRACTICE_START_CLEARANCE,
+      maximumY: WALL_INNER_HALF_SPAN
+    }),
+    deepFreeze({
+      id: "top-opening-clearance",
+      minimumX: WALL_SHORT_HALF_LENGTH - PRACTICE_START_CLEARANCE,
+      maximumX: WALL_INNER_HALF_SPAN,
+      minimumY: WALL_SHORT_HALF_LENGTH - PRACTICE_START_CLEARANCE,
+      maximumY: WALL_INNER_HALF_SPAN
+    }),
+    deepFreeze({
+      id: "bottom-opening-clearance",
+      minimumX: -WALL_INNER_HALF_SPAN,
+      maximumX: -WALL_SHORT_HALF_LENGTH + PRACTICE_START_CLEARANCE,
+      minimumY: -WALL_INNER_HALF_SPAN,
+      maximumY: -WALL_SHORT_HALF_LENGTH + PRACTICE_START_CLEARANCE
+    }),
+    deepFreeze({
+      id: "bottom-right-opening-clearance",
+      minimumX: WALL_SHORT_HALF_LENGTH - PRACTICE_START_CLEARANCE,
+      maximumX: WALL_INNER_HALF_SPAN,
+      minimumY: -WALL_INNER_HALF_SPAN,
+      maximumY: -WALL_SHORT_HALF_LENGTH + PRACTICE_START_CLEARANCE
+    })
+  ]);
+
   function deepFreeze(value) {
     if (!value || typeof value !== "object" || Object.isFrozen(value)) return value;
     Object.getOwnPropertyNames(value).forEach((key) => deepFreeze(value[key]));
@@ -101,8 +164,9 @@
 
   function normalizeAngle(angle) {
     let normalized = finiteNumber(angle, 0);
-    while (normalized > Math.PI) normalized -= Math.PI * 2;
-    while (normalized <= -Math.PI) normalized += Math.PI * 2;
+    normalized %= Math.PI * 2;
+    if (normalized > Math.PI) normalized -= Math.PI * 2;
+    if (normalized <= -Math.PI) normalized += Math.PI * 2;
     return normalized;
   }
 
@@ -363,13 +427,19 @@
       ? requestedRobot
       : selectedRobot;
     const cameraSource = source.camera || source;
+    const practiceObstructions = normalizePracticeObstructions(
+      source.practiceObstructions,
+      { robot: selectedRobot, chassis }
+    );
 
     return {
       sceneId: SCENE_ID,
       startPoseId,
       robot,
       chassis,
-      camera: normalizeCameraSettings(cameraSource)
+      camera: normalizeCameraSettings(cameraSource),
+      practiceObstructions,
+      practiceRuntime: initialPracticeRuntime(practiceObstructions)
     };
   }
 
@@ -393,6 +463,10 @@
     if (!isPoseValid({ robot, chassis })) {
       throw new Error(`Start pose ${validId} does not fit the ${chassis.length} × ${chassis.width}-inch chassis.`);
     }
+    const practiceObstructions = normalizePracticeObstructions(
+      current.practiceObstructions,
+      { robot, chassis }
+    );
 
     return {
       ...current,
@@ -400,7 +474,9 @@
       startPoseId: validId,
       robot,
       chassis,
-      camera: normalizeCameraSettings(current.camera)
+      camera: normalizeCameraSettings(current.camera),
+      practiceObstructions,
+      practiceRuntime: initialPracticeRuntime(practiceObstructions)
     };
   }
 
@@ -564,33 +640,32 @@
     return false;
   }
 
-  function resolveBoundary(options) {
-    const requested = options && options.outerBoundary;
-    if (!requested) return OUTER_BOUNDARY;
-
-    const boundary = {
-      minimumX: finiteNumber(requested.minimumX, OUTER_BOUNDARY.minimumX),
-      maximumX: finiteNumber(requested.maximumX, OUTER_BOUNDARY.maximumX),
-      minimumY: finiteNumber(requested.minimumY, OUTER_BOUNDARY.minimumY),
-      maximumY: finiteNumber(requested.maximumY, OUTER_BOUNDARY.maximumY)
-    };
-
-    if (boundary.minimumX >= boundary.maximumX || boundary.minimumY >= boundary.maximumY) {
-      return OUTER_BOUNDARY;
-    }
-
-    return boundary;
+  function rectangleFootprint(bounds) {
+    return [
+      { x: bounds.minimumX, y: bounds.minimumY },
+      { x: bounds.maximumX, y: bounds.minimumY },
+      { x: bounds.maximumX, y: bounds.maximumY },
+      { x: bounds.minimumX, y: bounds.maximumY }
+    ];
   }
 
-  function collisionForPose(stateOrPose, options) {
-    const source = stateOrPose && stateOrPose.robot ? stateOrPose.robot : stateOrPose;
-    if (!source || ![Number(source.x), Number(source.y), Number(source.heading)].every(Number.isFinite)) {
-      return { kind: "invalid-pose" };
+  function circularFootprint(x, y, radius = PRACTICE_FRUIT_RADIUS) {
+    const points = [];
+    for (let index = 0; index < PRACTICE_FRUIT_SEGMENTS; index += 1) {
+      const angle = index / PRACTICE_FRUIT_SEGMENTS * Math.PI * 2;
+      points.push({ x: x + Math.cos(angle) * radius, y: y + Math.sin(angle) * radius });
     }
-    const robot = normalizePose(stateOrPose);
-    const chassis = resolveChassis(stateOrPose, options);
+    return points;
+  }
 
-    const footprint = getRobotFootprint(robot, chassis);
+  function practiceRobotFootprint(pose) {
+    return getRobotFootprint(
+      pose,
+      { length: PRACTICE_ROBOT_LENGTH, width: PRACTICE_ROBOT_WIDTH }
+    );
+  }
+
+  function footprintCollision(footprint, options) {
     const boundary = resolveBoundary(options);
     const outsideBoundary = footprint.some((point) =>
       point.x < boundary.minimumX - EPSILON ||
@@ -598,7 +673,7 @@
       point.y < boundary.minimumY - EPSILON ||
       point.y > boundary.maximumY + EPSILON
     );
-    if (outsideBoundary) return { kind: "simulation-boundary" };
+    if (outsideBoundary) return { kind: boundary.kind || "simulation-boundary" };
 
     for (let index = 0; index < TABLES.length; index += 1) {
       if (polygonsOverlap(footprint, tableFootprint(TABLES[index]))) {
@@ -612,7 +687,363 @@
       }
     }
 
+    const ignoredIds = new Set(options && Array.isArray(options.ignoreIds) ? options.ignoreIds : []);
+    const obstructions = options && Array.isArray(options.obstructions) ? options.obstructions : [];
+    for (let index = 0; index < obstructions.length; index += 1) {
+      const obstruction = obstructions[index];
+      if (!obstruction || ignoredIds.has(obstruction.id) || !Array.isArray(obstruction.footprint)) continue;
+      if (polygonsOverlap(footprint, obstruction.footprint)) {
+        return { kind: obstruction.collisionKind || obstruction.kind || "practice-obstruction", id: obstruction.id };
+      }
+    }
+
     return null;
+  }
+
+  function resolveBoundary(options) {
+    const requested = options && options.outerBoundary;
+    if (!requested) return OUTER_BOUNDARY;
+
+    const boundary = {
+      minimumX: finiteNumber(requested.minimumX, OUTER_BOUNDARY.minimumX),
+      maximumX: finiteNumber(requested.maximumX, OUTER_BOUNDARY.maximumX),
+      minimumY: finiteNumber(requested.minimumY, OUTER_BOUNDARY.minimumY),
+      maximumY: finiteNumber(requested.maximumY, OUTER_BOUNDARY.maximumY),
+      kind: typeof requested.kind === "string" ? requested.kind : OUTER_BOUNDARY.kind
+    };
+
+    if (boundary.minimumX >= boundary.maximumX || boundary.minimumY >= boundary.maximumY) {
+      return OUTER_BOUNDARY;
+    }
+
+    return boundary;
+  }
+
+  function canonicalPracticeSeed(value, fallback = PRACTICE_DEFAULT_SEED) {
+    if (value === undefined) return fallback >>> 0;
+    if (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > 0xffffffff) {
+      throw new Error("Practice obstruction seed must be an unsigned 32-bit integer.");
+    }
+    return value >>> 0;
+  }
+
+  function advanceRandomState(randomState) {
+    return (Math.imul(randomState >>> 0, 1664525) + 1013904223) >>> 0;
+  }
+
+  function randomStep(randomState) {
+    const state = advanceRandomState(randomState);
+    return { state, value: state / 0x100000000 };
+  }
+
+  function mixPracticeSeed(seed, salt) {
+    let mixed = (seed ^ salt) >>> 0;
+    mixed = Math.imul(mixed ^ (mixed >>> 16), 0x7feb352d) >>> 0;
+    mixed = Math.imul(mixed ^ (mixed >>> 15), 0x846ca68b) >>> 0;
+    return (mixed ^ (mixed >>> 16)) >>> 0;
+  }
+
+  function boundsForFootprint(footprint, padding) {
+    const xs = footprint.map((point) => point.x);
+    const ys = footprint.map((point) => point.y);
+    const inset = finiteNumber(padding, 0);
+    return {
+      minimumX: Math.min(...xs) - inset,
+      maximumX: Math.max(...xs) + inset,
+      minimumY: Math.min(...ys) - inset,
+      maximumY: Math.max(...ys) + inset
+    };
+  }
+
+  function practiceReservedSolids(robot, chassis) {
+    const studentFootprint = getRobotFootprint({ robot, chassis });
+    const startBounds = boundsForFootprint(studentFootprint, PRACTICE_START_CLEARANCE);
+    return [
+      {
+        id: "student-start-clearance",
+        kind: "practice-clearance",
+        collisionKind: "practice-clearance",
+        footprint: rectangleFootprint(startBounds)
+      },
+      ...PRACTICE_ENTRANCE_CLEARANCES.map((clearance) => ({
+        id: clearance.id,
+        kind: "practice-clearance",
+        collisionKind: "practice-clearance",
+        footprint: rectangleFootprint(clearance)
+      }))
+    ];
+  }
+
+  function validatePracticeFootprint(footprint, occupied, reserved) {
+    return footprintCollision(footprint, {
+      outerBoundary: PRACTICE_BOUNDARY,
+      obstructions: [...occupied, ...reserved]
+    }) === null;
+  }
+
+  function normalizePracticeObstructions(candidate, context) {
+    const sourceContext = context || {};
+    const chassis = normalizeChassis(sourceContext.chassis);
+    const robotSource = sourceContext.robot || START_POSE_BY_ID[DEFAULT_START_POSE_ID];
+    if (!robotSource || ![Number(robotSource.x), Number(robotSource.y), Number(robotSource.heading)].every(Number.isFinite)) {
+      throw new Error("Practice obstruction validation requires a valid student starting pose.");
+    }
+    const robot = normalizePose(robotSource);
+
+    if (candidate === undefined || candidate === null) {
+      return {
+        fruitClutter: false,
+        roamingRobot: false,
+        seed: PRACTICE_DEFAULT_SEED >>> 0,
+        fruit: [],
+        roamingStart: null
+      };
+    }
+    if (typeof candidate !== "object" || Array.isArray(candidate)) {
+      throw new Error("Practice obstruction settings must be an object.");
+    }
+    ["fruitClutter", "roamingRobot"].forEach((key) => {
+      if (candidate[key] !== undefined && typeof candidate[key] !== "boolean") {
+        throw new Error(`${key} must be true or false.`);
+      }
+    });
+
+    const fruitClutter = candidate.fruitClutter === true;
+    const roamingRobot = candidate.roamingRobot === true;
+    const enabled = fruitClutter || roamingRobot;
+    if (enabled && candidate.seed === undefined) {
+      throw new Error("Enabled practice obstructions require a saved seed.");
+    }
+    const seed = canonicalPracticeSeed(candidate.seed);
+    const reserved = practiceReservedSolids(robot, chassis);
+    const occupied = [];
+    const fruit = [];
+
+    if (fruitClutter) {
+      if (!Array.isArray(candidate.fruit)) {
+        throw new Error("Enabled Fruit Clutter requires a saved fruit layout.");
+      }
+      if (candidate.fruit.length > PRACTICE_FRUIT_COUNT) {
+        throw new Error(`Fruit Clutter supports at most ${PRACTICE_FRUIT_COUNT} fruit props.`);
+      }
+      candidate.fruit.forEach((item, index) => {
+        if (!item || typeof item !== "object" || Array.isArray(item)) {
+          throw new Error(`Fruit prop ${index + 1} must be an object.`);
+        }
+        const expectedId = `fruit-${index + 1}`;
+        if (item.id !== expectedId || item.kind !== "practice-fruit") {
+          throw new Error(`Fruit prop ${index + 1} must use ID ${expectedId} and kind practice-fruit.`);
+        }
+        if (typeof item.x !== "number" || typeof item.y !== "number" ||
+            !Number.isFinite(item.x) || !Number.isFinite(item.y)) {
+          throw new Error(`Fruit prop ${expectedId} must have finite coordinates.`);
+        }
+        const canonical = {
+          id: expectedId,
+          kind: "practice-fruit",
+          x: item.x,
+          y: item.y
+        };
+        const solid = {
+          id: canonical.id,
+          kind: canonical.kind,
+          collisionKind: "fruit",
+          footprint: circularFootprint(canonical.x, canonical.y)
+        };
+        if (!validatePracticeFootprint(solid.footprint, occupied, reserved)) {
+          throw new Error(`Fruit prop ${expectedId} overlaps the field, another prop, or the reserved start clearance.`);
+        }
+        fruit.push(canonical);
+        occupied.push(solid);
+      });
+    }
+
+    let roamingStart = null;
+    if (roamingRobot) {
+      if (!Object.prototype.hasOwnProperty.call(candidate, "roamingStart")) {
+        throw new Error("Enabled Roaming Robot requires a saved starting placement.");
+      }
+      if (candidate.roamingStart !== null) {
+        const start = candidate.roamingStart;
+        if (!start || typeof start !== "object" || Array.isArray(start) ||
+            typeof start.x !== "number" || typeof start.y !== "number" ||
+            typeof start.heading !== "number" || !Number.isFinite(start.x) ||
+            !Number.isFinite(start.y) || !Number.isFinite(start.heading)) {
+          throw new Error("Roaming Robot start must contain finite x, y, and heading values.");
+        }
+        roamingStart = {
+          x: start.x,
+          y: start.y,
+          heading: normalizeAngle(start.heading)
+        };
+        const solid = {
+          id: "roaming-robot",
+          kind: "roaming-robot",
+          collisionKind: "roaming-robot",
+          footprint: practiceRobotFootprint(roamingStart)
+        };
+        if (!validatePracticeFootprint(solid.footprint, occupied, reserved)) {
+          throw new Error("Roaming Robot start overlaps the field, another prop, or the reserved start clearance.");
+        }
+      }
+    }
+
+    return { fruitClutter, roamingRobot, seed, fruit, roamingStart };
+  }
+
+  function createPracticeObstructions(options, context) {
+    const source = options || {};
+    if (typeof source !== "object" || Array.isArray(source)) {
+      throw new Error("Practice obstruction options must be an object.");
+    }
+    const fruitClutter = source.fruitClutter === true;
+    const roamingRobot = source.roamingRobot === true;
+    const sourceContext = context || {};
+    const seed = canonicalPracticeSeed(sourceContext.seed === undefined ? source.seed : sourceContext.seed);
+    const chassis = normalizeChassis(sourceContext.chassis);
+    const robot = normalizePose(sourceContext.robot || START_POSE_BY_ID[DEFAULT_START_POSE_ID]);
+    const reserved = practiceReservedSolids(robot, chassis);
+    const occupied = [];
+    const fruit = [];
+    let randomState = mixPracticeSeed(seed, 0x46525549);
+
+    function nextRandom() {
+      const next = randomStep(randomState);
+      randomState = next.state;
+      return next.value;
+    }
+
+    function steppedCoordinate(minimum, maximum) {
+      const slots = Math.floor((maximum - minimum) / PRACTICE_POSITION_STEP);
+      return minimum + Math.floor(nextRandom() * (slots + 1)) * PRACTICE_POSITION_STEP;
+    }
+
+    if (fruitClutter) {
+      for (let fruitIndex = 0; fruitIndex < PRACTICE_FRUIT_COUNT; fruitIndex += 1) {
+        let placed = null;
+        for (let attempt = 0; attempt < PRACTICE_PLACEMENT_ATTEMPTS; attempt += 1) {
+          const x = steppedCoordinate(
+            PRACTICE_BOUNDARY.minimumX + PRACTICE_FRUIT_RADIUS,
+            PRACTICE_BOUNDARY.maximumX - PRACTICE_FRUIT_RADIUS
+          );
+          const y = steppedCoordinate(
+            PRACTICE_BOUNDARY.minimumY + PRACTICE_FRUIT_RADIUS,
+            PRACTICE_BOUNDARY.maximumY - PRACTICE_FRUIT_RADIUS
+          );
+          const footprint = circularFootprint(x, y);
+          if (!validatePracticeFootprint(footprint, occupied, reserved)) continue;
+          placed = { id: `fruit-${fruit.length + 1}`, kind: "practice-fruit", x, y };
+          occupied.push({
+            id: placed.id,
+            kind: placed.kind,
+            collisionKind: "fruit",
+            footprint
+          });
+          break;
+        }
+        if (!placed) break;
+        fruit.push(placed);
+      }
+    }
+
+    let roamingStart = null;
+    if (roamingRobot) {
+      for (let attempt = 0; attempt < PRACTICE_PLACEMENT_ATTEMPTS; attempt += 1) {
+        const x = steppedCoordinate(
+          PRACTICE_BOUNDARY.minimumX + PRACTICE_ROBOT_LENGTH / 2,
+          PRACTICE_BOUNDARY.maximumX - PRACTICE_ROBOT_LENGTH / 2
+        );
+        const y = steppedCoordinate(
+          PRACTICE_BOUNDARY.minimumY + PRACTICE_ROBOT_WIDTH / 2,
+          PRACTICE_BOUNDARY.maximumY - PRACTICE_ROBOT_WIDTH / 2
+        );
+        const heading = Math.floor(nextRandom() * 24) * Math.PI / 12;
+        const pose = { x, y, heading: normalizeAngle(heading) };
+        const footprint = practiceRobotFootprint(pose);
+        if (!validatePracticeFootprint(footprint, occupied, reserved)) continue;
+        roamingStart = pose;
+        break;
+      }
+    }
+
+    return normalizePracticeObstructions(
+      { fruitClutter, roamingRobot, seed, fruit, roamingStart },
+      { robot, chassis }
+    );
+  }
+
+  function initialPracticeRuntime(practiceObstructions) {
+    if (!practiceObstructions.roamingRobot || !practiceObstructions.roamingStart) {
+      return { roaming: null };
+    }
+    let randomState = mixPracticeSeed(practiceObstructions.seed, 0x57414e44);
+    const durationRandom = randomStep(randomState);
+    randomState = durationRandom.state;
+    return {
+      roaming: {
+        pose: { ...practiceObstructions.roamingStart },
+        mode: "forward",
+        remainingSeconds: PRACTICE_FORWARD_MIN_SECONDS +
+          durationRandom.value * (PRACTICE_FORWARD_MAX_SECONDS - PRACTICE_FORWARD_MIN_SECONDS),
+        randomState
+      }
+    };
+  }
+
+  function practiceSolidsForState(state) {
+    if (!state || !state.practiceObstructions) return [];
+    const practice = state.practiceObstructions;
+    const solids = practice.fruit.map((item) => ({
+      id: item.id,
+      kind: item.kind,
+      collisionKind: "fruit",
+      x: item.x,
+      y: item.y,
+      heading: 0,
+      radius: PRACTICE_FRUIT_RADIUS,
+      height: PRACTICE_FRUIT_HEIGHT,
+      minimumZ: 0,
+      maximumZ: PRACTICE_FRUIT_HEIGHT,
+      footprint: circularFootprint(item.x, item.y)
+    }));
+    const roaming = state.practiceRuntime && state.practiceRuntime.roaming;
+    const roamingPose = roaming && roaming.pose
+      ? roaming.pose
+      : practice.roamingRobot && practice.roamingStart
+        ? practice.roamingStart
+        : null;
+    if (roamingPose) {
+      solids.push({
+        id: "roaming-robot",
+        kind: "roaming-robot",
+        collisionKind: "roaming-robot",
+        x: roamingPose.x,
+        y: roamingPose.y,
+        heading: roamingPose.heading,
+        length: PRACTICE_ROBOT_LENGTH,
+        width: PRACTICE_ROBOT_WIDTH,
+        height: PRACTICE_ROBOT_TOP_Z,
+        minimumZ: 0,
+        maximumZ: PRACTICE_ROBOT_TOP_Z,
+        footprint: practiceRobotFootprint(roamingPose)
+      });
+    }
+    return solids;
+  }
+
+  function collisionForPose(stateOrPose, options) {
+    const source = stateOrPose && stateOrPose.robot ? stateOrPose.robot : stateOrPose;
+    if (!source || ![Number(source.x), Number(source.y), Number(source.heading)].every(Number.isFinite)) {
+      return { kind: "invalid-pose" };
+    }
+    const robot = normalizePose(stateOrPose);
+    const chassis = resolveChassis(stateOrPose, options);
+    const footprint = getRobotFootprint(robot, chassis);
+    const collisionOptions = { ...(options || {}) };
+    if (!Array.isArray(collisionOptions.obstructions) && stateOrPose && stateOrPose.practiceObstructions) {
+      collisionOptions.obstructions = practiceSolidsForState(stateOrPose);
+    }
+    return footprintCollision(footprint, collisionOptions);
   }
 
   function isPoseValid(stateOrPose, options) {
@@ -665,10 +1096,14 @@
     let pose = initialPose;
     let collision = null;
     let completedSubsteps = 0;
+    const collisionOptions = { ...(options || {}) };
+    if (!Array.isArray(collisionOptions.obstructions) && poseOrState && poseOrState.practiceObstructions) {
+      collisionOptions.obstructions = practiceSolidsForState(poseOrState);
+    }
 
     for (let index = 0; index < substeps; index += 1) {
       const candidate = advancePose(pose, linearSpeed, angularSpeed, dt / substeps);
-      collision = collisionForPose({ robot: candidate, chassis }, options);
+      collision = collisionForPose({ robot: candidate, chassis }, collisionOptions);
       if (collision) break;
       pose = candidate;
       completedSubsteps += 1;
@@ -681,6 +1116,285 @@
       attemptedPose,
       substeps,
       completedSubsteps
+    };
+  }
+
+  function driveKinematics(drivetrain) {
+    const leftSpeed = normalizedDriveOutput(drivetrain && drivetrain.leftOutput) * MAX_LINEAR_SPEED;
+    const rightSpeed = normalizedDriveOutput(drivetrain && drivetrain.rightOutput) * MAX_LINEAR_SPEED;
+    return {
+      linearSpeed: (leftSpeed + rightSpeed) / 2,
+      angularSpeed: (rightSpeed - leftSpeed) / DRIVE_TRACK_WIDTH
+    };
+  }
+
+  function substepsForMotions(motions, deltaSeconds) {
+    if (deltaSeconds <= 0) return 0;
+    let substeps = 1;
+    motions.forEach((motion) => {
+      substeps = Math.max(
+        substeps,
+        Math.ceil(Math.abs(motion.linearSpeed * deltaSeconds) / MAX_TRANSLATION_SUBSTEP),
+        Math.ceil(Math.abs(motion.angularSpeed * deltaSeconds) / MAX_ROTATION_SUBSTEP_RADIANS)
+      );
+    });
+    return substeps;
+  }
+
+  function roamingCommand(mode) {
+    if (mode === "forward") {
+      return { leftOutput: PRACTICE_FORWARD_OUTPUT, rightOutput: PRACTICE_FORWARD_OUTPUT };
+    }
+    if (mode === "reverse") {
+      return { leftOutput: -PRACTICE_REVERSE_OUTPUT, rightOutput: -PRACTICE_REVERSE_OUTPUT };
+    }
+    if (mode === "turn-left") {
+      return { leftOutput: -PRACTICE_TURN_OUTPUT, rightOutput: PRACTICE_TURN_OUTPUT };
+    }
+    if (mode === "turn-right") {
+      return { leftOutput: PRACTICE_TURN_OUTPUT, rightOutput: -PRACTICE_TURN_OUTPUT };
+    }
+    return { leftOutput: 0, rightOutput: 0 };
+  }
+
+  function nextRoamingRandom(roaming) {
+    const next = randomStep(roaming.randomState);
+    roaming.randomState = next.state;
+    return next.value;
+  }
+
+  function roamingDuration(roaming, minimum, maximum) {
+    return minimum + nextRoamingRandom(roaming) * (maximum - minimum);
+  }
+
+  function chooseRoamingTurn(roaming) {
+    const mode = nextRoamingRandom(roaming) < 0.5 ? "turn-left" : "turn-right";
+    const degrees = roamingDuration(roaming, PRACTICE_TURN_MIN_DEGREES, PRACTICE_TURN_MAX_DEGREES);
+    const angularSpeed = 2 * PRACTICE_TURN_OUTPUT / DRIVE_TRACK_WIDTH;
+    roaming.mode = mode;
+    roaming.remainingSeconds = degrees * Math.PI / 180 / angularSpeed;
+  }
+
+  function transitionRoaming(roaming, blocked) {
+    if (blocked) {
+      if (nextRoamingRandom(roaming) < 0.35) {
+        roaming.mode = "reverse";
+        roaming.remainingSeconds = roamingDuration(
+          roaming,
+          PRACTICE_REVERSE_MIN_SECONDS,
+          PRACTICE_REVERSE_MAX_SECONDS
+        );
+      } else {
+        chooseRoamingTurn(roaming);
+      }
+      return;
+    }
+
+    if (roaming.mode === "forward") {
+      roaming.mode = "wait";
+      roaming.remainingSeconds = roamingDuration(
+        roaming,
+        PRACTICE_WAIT_MIN_SECONDS,
+        PRACTICE_WAIT_MAX_SECONDS
+      );
+      return;
+    }
+    if (roaming.mode === "wait" || roaming.mode === "reverse") {
+      chooseRoamingTurn(roaming);
+      return;
+    }
+    roaming.mode = "forward";
+    roaming.remainingSeconds = roamingDuration(
+      roaming,
+      PRACTICE_FORWARD_MIN_SECONDS,
+      PRACTICE_FORWARD_MAX_SECONDS
+    );
+  }
+
+  function integrateRobotPair(studentPose, chassis, studentDrive, roamingPose, roamingDrive, fruitSolids, deltaSeconds) {
+    const studentMotion = driveKinematics(studentDrive);
+    const roamingMotion = driveKinematics(roamingDrive);
+    const studentMoving = Math.abs(studentMotion.linearSpeed) > EPSILON ||
+      Math.abs(studentMotion.angularSpeed) > EPSILON;
+    const roamingMoving = Math.abs(roamingMotion.linearSpeed) > EPSILON ||
+      Math.abs(roamingMotion.angularSpeed) > EPSILON;
+    const substeps = substepsForMotions([studentMotion, roamingMotion], deltaSeconds);
+    let student = normalizePose(studentPose);
+    let roaming = normalizePose(roamingPose);
+    let studentBlocked = false;
+    let roamingBlocked = false;
+    let studentCollision = null;
+    let roamingCollision = null;
+    let elapsedSeconds = 0;
+
+    for (let index = 0; index < substeps; index += 1) {
+      const stepSeconds = deltaSeconds / substeps;
+      const studentCandidate = studentBlocked || !studentMoving
+        ? student
+        : advancePose(student, studentMotion.linearSpeed, studentMotion.angularSpeed, stepSeconds);
+      const roamingCandidate = roamingBlocked || !roamingMoving
+        ? roaming
+        : advancePose(roaming, roamingMotion.linearSpeed, roamingMotion.angularSpeed, stepSeconds);
+      let acceptedStudent = studentCandidate;
+      let acceptedRoaming = roamingCandidate;
+
+      if (!studentBlocked && studentMoving) {
+        const collision = collisionForPose(
+          { robot: studentCandidate, chassis },
+          { obstructions: fruitSolids }
+        );
+        if (collision) {
+          studentBlocked = true;
+          studentCollision = collision;
+          acceptedStudent = student;
+        }
+      }
+      if (!roamingBlocked && roamingMoving) {
+        const collision = collisionForPose(
+          {
+            robot: roamingCandidate,
+            chassis: { length: PRACTICE_ROBOT_LENGTH, width: PRACTICE_ROBOT_WIDTH }
+          },
+          { outerBoundary: PRACTICE_BOUNDARY, obstructions: fruitSolids }
+        );
+        if (collision) {
+          roamingBlocked = true;
+          roamingCollision = collision;
+          acceptedRoaming = roaming;
+        }
+      }
+
+      if (polygonsOverlap(
+        getRobotFootprint(acceptedStudent, chassis),
+        practiceRobotFootprint(acceptedRoaming)
+      )) {
+        acceptedStudent = student;
+        acceptedRoaming = roaming;
+        if (!studentBlocked && studentMoving) {
+          studentBlocked = true;
+          studentCollision = { kind: "roaming-robot", id: "roaming-robot" };
+        }
+        if (!roamingBlocked && roamingMoving) {
+          roamingBlocked = true;
+          roamingCollision = { kind: "student-robot", id: "student-robot" };
+        }
+      }
+
+      student = acceptedStudent;
+      roaming = acceptedRoaming;
+      elapsedSeconds += stepSeconds;
+      if (roamingBlocked) break;
+    }
+
+    return {
+      student,
+      roaming,
+      studentBlocked,
+      roamingBlocked,
+      studentCollision,
+      roamingCollision,
+      substeps,
+      elapsedSeconds
+    };
+  }
+
+  function integrateScene(state, drivetrain, deltaSeconds, options) {
+    const source = state && state.robot ? state : createState(state);
+    const dt = clamp(finiteNumber(deltaSeconds, 0), 0, MAX_DELTA_SECONDS);
+    const advanceRoaming = Boolean(options && options.advanceRoaming);
+    const practiceObstructions = source.practiceObstructions || normalizePracticeObstructions(
+      null,
+      { robot: source.robot, chassis: source.chassis }
+    );
+    const runtimeSource = source.practiceRuntime || initialPracticeRuntime(practiceObstructions);
+    const runtime = {
+      roaming: runtimeSource.roaming
+        ? {
+            pose: normalizePose(runtimeSource.roaming.pose),
+            mode: runtimeSource.roaming.mode,
+            remainingSeconds: Math.max(0, finiteNumber(runtimeSource.roaming.remainingSeconds, 0)),
+            randomState: canonicalPracticeSeed(runtimeSource.roaming.randomState)
+          }
+        : null
+    };
+    const baseState = {
+      ...source,
+      practiceObstructions,
+      practiceRuntime: runtime
+    };
+    const allSolids = practiceSolidsForState(baseState);
+    const fruitSolids = allSolids.filter((solid) => solid.kind === "practice-fruit");
+
+    if (!runtime.roaming || !advanceRoaming || dt <= 0) {
+      const movement = integrateRobot(
+        baseState,
+        drivetrain,
+        dt,
+        { obstructions: allSolids }
+      );
+      return {
+        state: { ...baseState, robot: movement.pose },
+        blocked: movement.blocked,
+        collision: movement.collision,
+        roamingBlocked: false,
+        roamingCollision: null
+      };
+    }
+
+    let studentPose = normalizePose(baseState.robot);
+    let remainingSeconds = dt;
+    let studentBlocked = false;
+    let studentCollision = null;
+    let roamingBlocked = false;
+    let roamingCollision = null;
+    let transitions = 0;
+
+    while (remainingSeconds > EPSILON && transitions <= PRACTICE_MAX_CONTROLLER_TRANSITIONS) {
+      if (runtime.roaming.remainingSeconds <= EPSILON) {
+        transitionRoaming(runtime.roaming, false);
+        transitions += 1;
+        continue;
+      }
+      const chunkSeconds = Math.min(remainingSeconds, runtime.roaming.remainingSeconds);
+      const pair = integrateRobotPair(
+        studentPose,
+        resolveChassis(baseState),
+        drivetrain,
+        runtime.roaming.pose,
+        roamingCommand(runtime.roaming.mode),
+        fruitSolids,
+        chunkSeconds
+      );
+      studentPose = pair.student;
+      runtime.roaming.pose = pair.roaming;
+      if (pair.studentBlocked) {
+        studentBlocked = true;
+        if (!studentCollision) studentCollision = pair.studentCollision;
+      }
+      if (pair.roamingBlocked) {
+        roamingBlocked = true;
+        if (!roamingCollision) roamingCollision = pair.roamingCollision;
+        transitionRoaming(runtime.roaming, true);
+        transitions += 1;
+      } else {
+        runtime.roaming.remainingSeconds = Math.max(
+          0,
+          runtime.roaming.remainingSeconds - pair.elapsedSeconds
+        );
+      }
+      remainingSeconds -= pair.elapsedSeconds;
+    }
+
+    return {
+      state: {
+        ...baseState,
+        robot: studentPose,
+        practiceRuntime: runtime
+      },
+      blocked: studentBlocked,
+      collision: studentCollision ? { ...studentCollision } : null,
+      roamingBlocked,
+      roamingCollision: roamingCollision ? { ...roamingCollision } : null
     };
   }
 
@@ -875,7 +1589,7 @@
     );
   }
 
-  function lineOfSightBlocked(cameraPosition, target, candidateMarker, robotState) {
+  function lineOfSightBlocked(cameraPosition, target, candidateMarker, robotState, obstructions) {
     for (let index = 0; index < TABLES.length; index += 1) {
       const table = TABLES[index];
       if (table.id === candidateMarker.ownerId) continue;
@@ -888,11 +1602,22 @@
       if (segmentIntersectsWall(cameraPosition, target, candidateWall)) return true;
     }
 
+    for (let index = 0; index < obstructions.length; index += 1) {
+      const obstruction = obstructions[index];
+      if (segmentIntersectsConvexPrism(
+        cameraPosition,
+        target,
+        obstruction.footprint,
+        obstruction.minimumZ,
+        obstruction.maximumZ
+      )) return true;
+    }
+
     const footprint = getRobotFootprint(robotState);
     return segmentIntersectsConvexPrism(cameraPosition, target, footprint, 0, ROBOT_TOP_Z);
   }
 
-  function markerOccluded(candidateMarker, camera, robotState) {
+  function markerOccluded(candidateMarker, camera, robotState, obstructions) {
     const sampleCoordinates = [-1, -0.5, 0, 0.5, 1];
     for (let verticalIndex = 0; verticalIndex < sampleCoordinates.length; verticalIndex += 1) {
       for (let horizontalIndex = 0; horizontalIndex < sampleCoordinates.length; horizontalIndex += 1) {
@@ -901,13 +1626,13 @@
           sampleCoordinates[horizontalIndex],
           sampleCoordinates[verticalIndex]
         );
-        if (lineOfSightBlocked(camera.position, target, candidateMarker, robotState)) return true;
+        if (lineOfSightBlocked(camera.position, target, candidateMarker, robotState, obstructions)) return true;
       }
     }
     return false;
   }
 
-  function projectMarker(candidateMarker, camera, robotState) {
+  function projectMarker(candidateMarker, camera, robotState, obstructions) {
     const cameraFromMarker = subtract(camera.position, candidateMarker.center);
     const frontFacing = dot(candidateMarker.normal, cameraFromMarker) > EPSILON;
     const corners = candidateMarker.corners.map((corner) => projectPoint(corner, camera));
@@ -922,7 +1647,7 @@
     const sufficientlyLarge = minimumProjectedEdge >= MIN_PROJECTED_PATTERN_PIXELS &&
       projectedArea >= MIN_PROJECTED_PATTERN_PIXELS ** 2;
     const occluded = frontFacing && allInFront && fullyInFrame && sufficientlyLarge
-      ? markerOccluded(candidateMarker, camera, robotState)
+      ? markerOccluded(candidateMarker, camera, robotState, obstructions)
       : false;
     const rejectionReasons = [];
 
@@ -956,13 +1681,16 @@
     const chassis = resolveChassis(state || stateOrPose);
     const robotState = { robot, chassis };
     const camera = getCameraPose(state || robot, cameraSettings || (state && state.camera));
-    const markers = FIDUCIALS.map((candidateMarker) => projectMarker(candidateMarker, camera, robotState));
+    const obstructions = state ? practiceSolidsForState(state) : [];
+    const markers = FIDUCIALS.map((candidateMarker) =>
+      projectMarker(candidateMarker, camera, robotState, obstructions)
+    );
     const detections = markers
       .filter((candidate) => candidate.eligible)
       .sort((a, b) => a.id - b.id)
       .map(detectionFromProjection);
 
-    return deepFreeze({ camera, robot, chassis, markers, detections });
+    return deepFreeze({ camera, robot, chassis, obstructions, markers, detections });
   }
 
   function detectionFromProjection(projection) {
@@ -1101,6 +1829,15 @@
         surface: candidateMarker.surface,
         ...toScreen(candidateMarker.center)
       })),
+      obstructions: practiceSolidsForState(state).map((obstruction) => {
+        const center = toScreen(obstruction);
+        return {
+          ...obstruction,
+          x: center.x,
+          y: center.y,
+          footprint: obstruction.footprint.map(toScreen)
+        };
+      }),
       robot: {
         x: robotPoint.x,
         y: robotPoint.y,
@@ -1162,6 +1899,21 @@
     robotSide: ROBOT_DEFAULT_LENGTH,
     robotCornerRadius: ROBOT_CORNER_RADIUS,
     robotTopZ: ROBOT_TOP_Z,
+    practiceFruitCount: PRACTICE_FRUIT_COUNT,
+    practiceFruitRadius: PRACTICE_FRUIT_RADIUS,
+    practiceFruitHeight: PRACTICE_FRUIT_HEIGHT,
+    practiceRobotLength: PRACTICE_ROBOT_LENGTH,
+    practiceRobotWidth: PRACTICE_ROBOT_WIDTH,
+    practiceRobotCornerRadius: PRACTICE_ROBOT_CORNER_RADIUS,
+    practiceRobotTopZ: PRACTICE_ROBOT_TOP_Z,
+    practiceStartClearance: PRACTICE_START_CLEARANCE,
+    practicePlacementAttempts: PRACTICE_PLACEMENT_ATTEMPTS,
+    practicePositionStep: PRACTICE_POSITION_STEP,
+    practiceDefaultSeed: PRACTICE_DEFAULT_SEED,
+    practiceForwardOutput: PRACTICE_FORWARD_OUTPUT,
+    practiceTurnOutput: PRACTICE_TURN_OUTPUT,
+    practiceReverseOutput: PRACTICE_REVERSE_OUTPUT,
+    practiceBoundary: PRACTICE_BOUNDARY,
     maxLinearSpeed: MAX_LINEAR_SPEED,
     driveTrackWidth: DRIVE_TRACK_WIDTH,
     maxTranslationSubstep: MAX_TRANSLATION_SUBSTEP,
@@ -1174,7 +1926,7 @@
     detectionModel: "analytic projected fiducial geometry; not hardware-validated decoding",
     detectionOrdering: "ascending fiducial ID",
     cutoffPolicy: "the complete recognition pattern must be inside the image",
-    occlusionPolicy: "reject when modeled walls, tables, or the chassis block sampled pattern sightlines"
+    occlusionPolicy: "reject when modeled walls, tables, the chassis, or practice obstructions block sampled pattern sightlines"
   });
 
   return Object.freeze({
@@ -1190,10 +1942,13 @@
     normalizePose,
     normalizeChassis,
     normalizeCameraSettings,
+    normalizePracticeObstructions,
+    createPracticeObstructions,
     getRobotFootprint,
     collisionForPose,
     isPoseValid,
     integrateRobot,
+    integrateScene,
     getCameraPose,
     projectPoint,
     projectScene,

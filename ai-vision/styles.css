@@ -579,6 +579,105 @@ body.is-resizing-layout * {
   background: var(--teal);
 }
 
+.practice-obstructions {
+  min-width: 0;
+  margin: 2px 0 0;
+  padding: 6px 0 0;
+  grid-column: 1 / -1;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+
+.practice-obstructions > legend {
+  padding: 0 7px 0 0;
+  color: var(--teal-dark);
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.075em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.practice-obstructions-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) minmax(88px, auto);
+  gap: 5px;
+  align-items: stretch;
+}
+
+.practice-obstruction-toggle,
+.practice-obstructions-button {
+  min-width: 0;
+  min-height: 34px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: #0a171d;
+}
+
+.practice-obstruction-toggle {
+  padding: 4px 7px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink);
+  font-size: 0.69rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.practice-obstruction-toggle input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  flex: 0 0 auto;
+  accent-color: var(--teal);
+}
+
+.practice-obstructions-button {
+  padding: 4px 9px;
+  color: var(--teal-dark);
+  font-size: 0.69rem;
+  font-weight: 800;
+  letter-spacing: 0.025em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.practice-obstruction-toggle:hover,
+.practice-obstructions-button:hover:not(:disabled) {
+  border-color: rgba(115, 226, 197, 0.52);
+  background: #12252d;
+}
+
+.practice-obstruction-toggle:focus-within,
+.practice-obstructions-button:focus-visible {
+  outline: 2px solid #68c9ba;
+  outline-offset: 1px;
+}
+
+.practice-obstruction-toggle input:focus-visible {
+  outline: none;
+}
+
+.practice-obstructions[disabled] .practice-obstruction-toggle,
+.practice-obstructions-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.practice-obstructions-status {
+  min-height: 0.9rem;
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.67rem;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.practice-obstructions-status:empty {
+  display: none;
+}
+
 .camera-section {
   background: rgba(10, 21, 27, 0.48);
 }
@@ -1202,6 +1301,14 @@ body.is-resizing-layout * {
     grid-column: 1 / -1;
   }
 
+  .practice-obstructions-controls {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .practice-obstructions-button {
+    grid-column: 1 / -1;
+  }
+
   .world-section {
     border-left: 0;
   }
@@ -1227,6 +1334,15 @@ body.is-resizing-layout * {
 }
 
 @media (forced-colors: active) {
+  .practice-obstruction-toggle,
+  .practice-obstructions-button {
+    border-color: ButtonText;
+  }
+
+  .practice-obstruction-toggle input {
+    forced-color-adjust: auto;
+  }
+
   .layout-divider::before,
   .layout-divider-handle {
     background: ButtonText;
