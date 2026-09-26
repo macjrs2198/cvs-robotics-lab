@@ -19,17 +19,20 @@ function validateParams(input) {
     pinionSafety: finiteNumber(input.pinionSafety ?? 1.1, 'Pinion safety factor'),
     gearSafety: finiteNumber(input.gearSafety ?? 1.1, 'Gear safety factor'),
   };
-  for (const key of ['pinionTeeth', 'gearTeeth']) {
-    if (!Number.isInteger(params[key]) || params[key] < 4 || params[key] > 300) {
-      throw new Error(`${key} must be a whole number from 4 to 300.`);
+  for (const [key, label, maximum] of [
+    ['pinionTeeth', 'Pinion teeth', 35],
+    ['gearTeeth', 'Gear teeth', 150],
+  ]) {
+    if (!Number.isInteger(params[key]) || params[key] < 4 || params[key] > maximum) {
+      throw new Error(`${label} must be a whole number from 4 to ${maximum}.`);
     }
   }
   if (params.pressureAngleDeg <= 0 || params.pressureAngleDeg >= 45) {
     throw new Error('Pressure angle must be greater than 0° and less than 45°.');
   }
   if (params.centerDistance <= 0) throw new Error('Center distance must be positive.');
-  if (params.pinionSafety <= 0 || params.gearSafety <= 0) {
-    throw new Error('Both dedendum safety factors must be positive.');
+  if (params.pinionSafety <= 1 || params.gearSafety <= 1) {
+    throw new Error('Both root clearance factors must be greater than 1 so the gear teeth have room to turn.');
   }
   return params;
 }
@@ -52,11 +55,20 @@ function scaled({ x, y }) {
   return { x: x * MM_PER_INCH, y: y * MM_PER_INCH };
 }
 
+// The angle, measured from the start of an involute, at the radius described
+// by theta. It grows steadily as the flank goes from its root to its tip.
+function involuteAngle(theta) {
+  return theta - Math.atan(theta);
+}
+
 function buildProfile(kind, teeth, pitchRadius, outsideRadius, rootRadius,
   pressureAngle, angularThickness) {
   const baseRadius = pitchRadius * Math.cos(pressureAngle);
-  if (rootRadius <= 0) throw new Error(`${kind} root radius is zero or negative; adjust the tooth counts or safety factors.`);
-  if (outsideRadius <= baseRadius) throw new Error(`${kind} outside radius must exceed its base radius.`);
+  const name = kind === 'pinion' ? 'Pinion' : 'Gear';
+  if (rootRadius <= 0) throw new Error(`${name} root radius is zero or negative; reduce its root clearance factor or change the tooth counts.`);
+  if (outsideRadius <= Math.max(baseRadius, rootRadius)) {
+    throw new Error(`${name} tooth tips must be outside its root and base circles; change the tooth counts or pressure angle.`);
+  }
 
   const thetaPitch = Math.sqrt((pitchRadius ** 2 - baseRadius ** 2) / baseRadius ** 2);
   const pitchInvolute = involute(baseRadius, thetaPitch);
@@ -67,13 +79,46 @@ function buildProfile(kind, teeth, pitchRadius, outsideRadius, rootRadius,
   // first exceeds the outside radius, then divides that theta by 18.
   const thetaOutside = Math.sqrt((outsideRadius ** 2 - baseRadius ** 2) / baseRadius ** 2);
   const sampledThetaOutside = (Math.floor(thetaOutside / INVOLUTE_STEP) + 1) * INVOLUTE_STEP;
-  const first = [{ x: rootRadius, y: 0 }, { x: baseRadius, y: 0 }];
-  for (let k = 1; k <= 18; k++) {
-    first.push(involute(baseRadius, k * sampledThetaOutside / 18));
+  const thetaRoot = rootRadius > baseRadius ?
+    Math.sqrt((rootRadius ** 2 - baseRadius ** 2) / baseRadius ** 2) : 0;
+  const tipSpan = flankRotation - 2 * involuteAngle(sampledThetaOutside);
+  const rootSpan = flankRotation - 2 * involuteAngle(thetaRoot);
+  const toothPitch = TAU / teeth;
+  if (tipSpan <= 1e-8) {
+    throw new Error(`${name} tooth tips cross or come to a point. Add teeth or change the pressure angle.`);
   }
-  for (let k = 19; k >= 0; k--) {
-    const { x, y } = first[k];
-    first.push(rotate({ x, y: -y }, flankRotation));
+  if (rootSpan >= toothPitch - 1e-8) {
+    throw new Error(`${name} tooth spaces close at the roots. Change the tooth counts or pressure angle.`);
+  }
+
+  let first;
+  if (rootRadius > baseRadius) {
+    // There is no useful flank below the root circle. Start at the root
+    // involute rather than cutting inward to the base circle and back out.
+    // Use 19 samples on each flank and two points in the root-circle gap,
+    // preserving 40 vertices per tooth for the existing DXF/CAM capacity.
+    first = Array.from({ length: 19 }, (_, k) => involute(baseRadius,
+      thetaRoot + k * (sampledThetaOutside - thetaRoot) / 18));
+    for (let k = 18; k >= 0; k--) {
+      const { x, y } = first[k];
+      first.push(rotate({ x, y: -y }, flankRotation));
+    }
+    const rootGap = toothPitch - rootSpan;
+    for (let k = 1; k <= 2; k++) {
+      const angle = flankRotation - involuteAngle(thetaRoot) + k * rootGap / 3;
+      first.push({ x: rootRadius * Math.cos(angle), y: rootRadius * Math.sin(angle) });
+    }
+  } else {
+    // Preserve the original workbook's exact 40 samples per tooth where the
+    // root is below the base circle (including the supplied 10/30 example).
+    first = [{ x: rootRadius, y: 0 }, { x: baseRadius, y: 0 }];
+    for (let k = 1; k <= 18; k++) {
+      first.push(involute(baseRadius, k * sampledThetaOutside / 18));
+    }
+    for (let k = 19; k >= 0; k--) {
+      const { x, y } = first[k];
+      first.push(rotate({ x, y: -y }, flankRotation));
+    }
   }
 
   const pointsInches = [];
@@ -122,10 +167,43 @@ export function buildPair(input) {
     gearPitchRadius + addendumGear,
     gearPitchRadius - gearSafety * addendumPinion,
     pressureAngle, gearThickness);
+  // The CAD and CAM exporters accept XY coordinates within ±10,000 mm.
+  // Check the generated vertices here so the preview does not offer a gear
+  // that cannot be downloaded at an unusually large center distance.
+  if ([pinion, gear].some(part => part.points.some(point =>
+    Math.abs(point.x) > 10000 || Math.abs(point.y) > 10000))) {
+    throw new Error('This gear is too large for the app drawing range. Reduce the center distance.');
+  }
+  const centerDistanceMm = cd * MM_PER_INCH;
+  const clearanceTolerance = Math.max(1e-7, centerDistanceMm * 1e-10);
+  if (pinion.rootRadius + gear.outsideRadius >= centerDistanceMm - clearanceTolerance ||
+      gear.rootRadius + pinion.outsideRadius >= centerDistanceMm - clearanceTolerance) {
+    throw new Error('The gear tips need clearance at the mating roots. Increase the root clearance factors.');
+  }
+
+  // Each tooth must contact the other gear on an actual involute flank above
+  // its root circle. Otherwise the tip would jam into a root instead of mesh.
+  const approach = Math.sqrt(gear.outsideRadius ** 2 - gear.baseRadius ** 2) -
+    gear.pitchRadius * Math.sin(pressureAngle);
+  const recess = Math.sqrt(pinion.outsideRadius ** 2 - pinion.baseRadius ** 2) -
+    pinion.pitchRadius * Math.sin(pressureAngle);
+  const usablePinionApproach = pinion.pitchRadius * Math.sin(pressureAngle) -
+    Math.sqrt(Math.max(0, pinion.rootRadius ** 2 - pinion.baseRadius ** 2));
+  const usableGearRecess = gear.pitchRadius * Math.sin(pressureAngle) -
+    Math.sqrt(Math.max(0, gear.rootRadius ** 2 - gear.baseRadius ** 2));
+  if (approach > usablePinionApproach + clearanceTolerance ||
+      recess > usableGearRecess + clearanceTolerance) {
+    throw new Error('The gear teeth would jam: a tooth tip reaches below the mating involute flank. Change the tooth counts or pressure angle.');
+  }
+  const basePitch = circularPitch * MM_PER_INCH * Math.cos(pressureAngle);
+  if ((approach + recess) / basePitch <= 1 + 1e-8) {
+    throw new Error('The gear pair cannot maintain continuous tooth contact. Change the tooth counts or pressure angle.');
+  }
   return {
     params,
     units: 'mm',
     sourceUnits: 'in',
+    contactRatio: (approach + recess) / basePitch,
     circularPitch: circularPitch * MM_PER_INCH,
     diametralPitch, // teeth per source inch
     addendumPinion: addendumPinion * MM_PER_INCH,
@@ -256,9 +334,15 @@ export async function parseWorkbook(file) {
     contour.length === params.gearTeeth * 40 + 1 ? 'gear' : null;
   let maxDifference = null;
   if (kind) {
-    const regenerated = buildPair(params)[kind].points;
-    maxDifference = Math.max(...contour.map((p, i) =>
-      Math.hypot(p.x - regenerated[i].x, p.y - regenerated[i].y)));
+    // A saved trace from an older workbook must not prevent importing its
+    // inputs merely because the current generator refuses unsafe geometry.
+    try {
+      const regenerated = buildPair(params)[kind].points;
+      maxDifference = Math.max(...contour.map((p, i) =>
+        Math.hypot(p.x - regenerated[i].x, p.y - regenerated[i].y)));
+    } catch {
+      // null explicitly means the old drawing could not be verified.
+    }
   }
   return {
     params,
@@ -266,7 +350,7 @@ export async function parseWorkbook(file) {
     macroOutputScale: cells.get('F14') ?? null,
     cachedTrace: contour.length ? {
       kind, points: contour, units: 'mm',
-      matchesInputs: kind !== null && maxDifference < 0.001,
+      matchesInputs: kind !== null && Number.isFinite(maxDifference) && maxDifference < 0.001,
       maxDifferenceMm: maxDifference,
     } : null,
   };

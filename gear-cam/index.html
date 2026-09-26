@@ -39,12 +39,21 @@
               <form id="gear-form" novalidate>
                 <h3>Gear pair settings</h3>
                 <div class="form-grid">
-                  <label>Pinion teeth<input id="pinion-teeth" name="pinionTeeth" type="number" min="4" max="300" step="1" inputmode="numeric" required value="10"></label>
-                  <label>Gear teeth<input id="gear-teeth" name="gearTeeth" type="number" min="4" max="300" step="1" inputmode="numeric" required value="30"></label>
-                  <label>Center distance <span class="unit">in</span><input id="center-distance" name="centerDistance" type="number" min="0.01" step="any" inputmode="decimal" required value="7"></label>
+                  <label>Pinion teeth<input id="pinion-teeth" name="pinionTeeth" type="number" min="4" max="35" step="1" inputmode="numeric" aria-describedby="gear-validity" required value="10"></label>
+                  <label>Gear teeth<input id="gear-teeth" name="gearTeeth" type="number" min="4" max="150" step="1" inputmode="numeric" aria-describedby="gear-validity" required value="30"></label>
+                  <label>Center distance <span class="unit">in</span><input id="center-distance" name="centerDistance" type="number" min="0.01" step="any" inputmode="decimal" aria-describedby="linked-explanation gear-validity" required value="7"></label>
                   <label>Pressure angle <span class="unit">°</span><input id="pressure-angle" name="pressureAngleDeg" type="number" min="0.01" max="44.99" step="any" inputmode="decimal" required value="20"></label>
                 </div>
-                <details class="advanced-inputs"><summary>Dedendum safety factors</summary><div class="form-grid"><label>Pinion factor<input id="pinion-safety" name="pinionSafety" type="number" min="0.01" step="any" inputmode="decimal" required value="1.1"></label><label>Gear factor<input id="gear-safety" name="gearSafety" type="number" min="0.01" step="any" inputmode="decimal" required value="1.1"></label></div><p class="field-note">These match cells J4 and J9 in the spreadsheet.</p></details>
+                <label class="linked-control"><input id="lock-tooth-size" type="checkbox"> Keep tooth size the same when changing tooth counts</label>
+                <p id="linked-explanation" class="field-note">Center distance stays fixed. Changing tooth counts changes the tooth size, just like the spreadsheet.</p>
+                <div class="gear-relationship" aria-label="How the gear measurements fit together">
+                  <strong>How the sizes fit together</strong>
+                  <p>Pitch circles are imaginary circles where the two gears meet. Their diameters add up to twice the center distance.</p>
+                  <div class="pitch-equation"><span><small>Pinion</small><b id="pinion-pitch-diameter">—</b></span><i>+</i><span><small>Gear</small><b id="gear-pitch-diameter">—</b></span><i>=</i><span><small>Both</small><b id="total-pitch-diameter">—</b></span></div>
+                  <p>Tooth spacing: <strong id="tooth-spacing">—</strong> on both gears · Gear ratio: <strong id="gear-ratio">—</strong></p>
+                </div>
+                <p id="gear-validity" class="gear-validity" role="status" aria-live="polite">Checking the gear shapes…</p>
+                <details class="advanced-inputs"><summary>Root clearance (advanced)</summary><div class="form-grid"><label>Pinion factor<input id="pinion-safety" name="pinionSafety" type="number" min="1" step="any" inputmode="decimal" required value="1.1"></label><label>Gear factor<input id="gear-safety" name="gearSafety" type="number" min="1" step="any" inputmode="decimal" required value="1.1"></label></div><p class="field-note">Start with 1.1; values greater than 1 leave space under the mating tooth tip. These match cells J4 and J9 in the spreadsheet.</p></details>
               </form>
             </section>
 

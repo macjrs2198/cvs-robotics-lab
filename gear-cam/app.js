@@ -6,7 +6,7 @@ const MM_PER_INCH = 25.4;
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const $ = id => document.getElementById(id);
 const state = { mode: 'gear', part: 'pinion', pair: null, profiles: [], job: null,
-  fileName: '', depthMode: 'passes', pendingDXF: null };
+  fileName: '', depthMode: 'passes', pendingDXF: null, lockedDiametralPitch: null };
 const gearForm = $('gear-form');
 const cutForm = $('cut-form');
 const cutList = $('cut-list');
@@ -36,7 +36,19 @@ function number(id) {
 }
 
 function gearParams() {
-  if (!gearForm.checkValidity()) throw new Error('Check the gear pair values.');
+  const invalid = [...gearForm.querySelectorAll('input[type="number"]')]
+    .find(input => !input.checkValidity());
+  if (invalid) {
+    const labels = {
+      'pinion-teeth': 'Pinion teeth must be a whole number from 4 to 35 for this gear design.',
+      'gear-teeth': 'Gear teeth must be a whole number from 4 to 150.',
+      'center-distance': 'Enter a center distance greater than zero.',
+      'pressure-angle': 'Enter a pressure angle greater than 0° and less than 45°.',
+      'pinion-safety': 'Enter a pinion root clearance factor greater than 1.',
+      'gear-safety': 'Enter a gear root clearance factor greater than 1.',
+    };
+    throw new Error(labels[invalid.id] ?? 'Check the gear pair values.');
+  }
   return {
     pinionTeeth: number('pinion-teeth'),
     gearTeeth: number('gear-teeth'),
@@ -45,6 +57,64 @@ function gearParams() {
     pinionSafety: number('pinion-safety'),
     gearSafety: number('gear-safety'),
   };
+}
+
+function updateGearRelations() {
+  const np = number('pinion-teeth'), ng = number('gear-teeth');
+  const center = number('center-distance');
+  const valid = np !== null && ng !== null && center !== null && center > 0;
+  const diametralPitch = valid ? (np + ng) / (2 * center) : 0;
+  $('pinion-pitch-diameter').textContent = valid ? (np / diametralPitch).toFixed(3) + ' in' : '—';
+  $('gear-pitch-diameter').textContent = valid ? (ng / diametralPitch).toFixed(3) + ' in' : '—';
+  $('total-pitch-diameter').textContent = valid ? (2 * center).toFixed(3) + ' in' : '—';
+  $('tooth-spacing').textContent = valid ? (Math.PI * MM_PER_INCH / diametralPitch).toFixed(2) + ' mm' : '—';
+  $('gear-ratio').textContent = valid ? Number((ng / np).toFixed(2)) + ':1' : '—';
+  for (const input of gearForm.querySelectorAll('input[type="number"]')) {
+    input.setAttribute('aria-invalid', String(!input.checkValidity()));
+  }
+}
+
+function updateToothSizeLock() {
+  const locked = $('lock-tooth-size').checked;
+  if (locked) {
+    const np = number('pinion-teeth'), ng = number('gear-teeth');
+    const center = number('center-distance');
+    if (np === null || ng === null || center === null || center <= 0) {
+      $('lock-tooth-size').checked = false;
+      status($('gear-validity'), 'Enter valid tooth counts and center distance before keeping tooth size fixed.', 'error');
+      return;
+    }
+    state.lockedDiametralPitch = (np + ng) / (2 * center);
+  } else state.lockedDiametralPitch = null;
+  $('center-distance').readOnly = locked;
+  $('linked-explanation').textContent = locked
+    ? 'Tooth size stays fixed. Changing either tooth count moves the gear centers automatically. Uncheck to edit center distance.'
+    : 'Center distance stays fixed. Changing tooth counts changes the tooth size, just like the spreadsheet.';
+  updateGearRelations();
+}
+
+function syncLinkedCenter(changedId) {
+  if (!state.lockedDiametralPitch || !['pinion-teeth', 'gear-teeth'].includes(changedId)) return;
+  const np = number('pinion-teeth'), ng = number('gear-teeth');
+  if (np === null || ng === null) return;
+  $('center-distance').value = String(Number(((np + ng) / (2 * state.lockedDiametralPitch)).toFixed(6)));
+}
+
+function clearGearWhileEditing() {
+  if (state.mode !== 'gear') return;
+  state.pair = null;
+  state.profiles = [];
+  state.job = null;
+  renderCutList();
+  for (const id of ['pitch-value', 'outside-value', 'root-value']) $(id).textContent = '—';
+  for (const [id, value] of [['pinion-count', number('pinion-teeth')],
+    ['gear-count', number('gear-teeth')]]) {
+    $(id).textContent = value === null ? '—' : value + ' teeth';
+  }
+  $('drawing-label').textContent = 'CHECK GEAR VALUES';
+  status($('gear-validity'), 'Checking both gear shapes…');
+  status($('drawing-status'), 'Checking the updated gear measurements…');
+  refresh();
 }
 
 function circlePoints(x, y, radius) {
@@ -362,15 +432,20 @@ function syncPassControls(changedId) {
 
 function applyGearInput() {
   if (state.mode !== 'gear') return;
+  updateGearRelations();
   try {
     rebuildGear();
     renderCutList();
     status($('drawing-status'), '');
+    status($('gear-validity'), 'Both gear outlines pass the shape check. Check bit size and material fit before cutting.', 'success');
   } catch (error) {
     state.pair = null;
     state.profiles = [];
+    for (const id of ['pitch-value', 'outside-value', 'root-value']) $(id).textContent = '—';
+    $('drawing-label').textContent = 'CHECK GEAR VALUES';
     renderCutList();
     status($('drawing-status'), error.message, 'error');
+    status($('gear-validity'), error.message, 'error');
   }
   refresh();
 }
@@ -415,14 +490,25 @@ function fileStem() {
   return 'CVS-' + state.part + '-' + state.pair[state.part].teeth + 'T';
 }
 
-gearForm.addEventListener('input', () => {
+gearForm.addEventListener('input', event => {
+  if (event.target.id === 'lock-tooth-size') return;
+  syncLinkedCenter(event.target.id);
+  updateGearRelations();
+  clearGearWhileEditing();
   status($('source-status'), 'Using the values entered below.');
   clearTimeout(updateTimer);
   updateTimer = setTimeout(applyGearInput, 100);
 });
+// The checkbox sits inside the form, but its change sets the relationship
+// rather than changing a numeric gear input.
+$('lock-tooth-size').addEventListener('change', () => {
+  updateToothSizeLock();
+  if (state.mode === 'gear') applyGearInput();
+});
 gearForm.addEventListener('submit', event => event.preventDefault());
 cutForm.addEventListener('submit', event => event.preventDefault());
 $('bore-diameter').addEventListener('input', () => {
+  clearGearWhileEditing();
   clearTimeout(updateTimer);
   updateTimer = setTimeout(applyGearInput, 100);
 });
@@ -479,6 +565,8 @@ $('workbook-file').addEventListener('change', async event => {
       pressureAngleDeg: 'pressure-angle', centerDistance: 'center-distance',
       pinionSafety: 'pinion-safety', gearSafety: 'gear-safety',
     })) $(id).value = result.params[key];
+    $('lock-tooth-size').checked = false;
+    updateToothSizeLock();
     state.mode = 'gear';
     state.profiles = [];
     state.fileName = file.name;
@@ -486,10 +574,12 @@ $('workbook-file').addEventListener('change', async event => {
     $('confirm-origin').checked = false;
     showMode();
     applyGearInput();
-    status($('drawing-status'), '');
     const trace = result.cachedTrace?.matchesInputs === false
-      ? ' The saved drawing differs from the inputs; the preview uses freshly generated values.' : '';
-    status($('source-status'), 'Loaded six gear inputs from ' + file.name + '.' + trace, 'success');
+      ? state.pair
+        ? ' The saved drawing differs from the inputs; the preview uses freshly generated values.'
+        : ' The saved drawing was not used because this pair fails the shape check.' : '';
+    status($('source-status'), 'Loaded six gear inputs from ' + file.name + '.' + trace +
+      (state.pair ? '' : ' Fix the gear shape before exporting.'), state.pair ? 'success' : 'error');
   } catch (error) {
     status($('source-status'), error.message, 'error');
   }

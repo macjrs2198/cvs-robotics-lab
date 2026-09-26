@@ -8,6 +8,12 @@ DXF export writes an AutoCAD 2018 drawing in millimeters by default, with standa
 
 The source workbook uses pinion and gear tooth counts, pressure angle, center distance in inches, and two dedendum safety factors. `gear.js` reproduces its 40-point-per-tooth outlines and converts them to millimeters internally. The provided 30-tooth saved trace is used as a regression fixture. The original macro's `li` text is a LibreCAD drawing script, not machine G-code.
 
+The two tooth counts and center distance determine tooth size: diametral pitch is `(pinion teeth + gear teeth) / (2 × center distance in inches)`. The default input mode holds center distance fixed like the workbook; the **Keep tooth size** checkbox instead holds diametral pitch fixed and updates center distance as tooth counts change. The app shows both pitch diameters, shared tooth spacing, and gear ratio while students edit. The workbook's pinion addendum formula supports 4–35 pinion teeth; the drawing and CAM vertex limit supports up to 150 gear teeth.
+
+Before either gear is offered for export, the generator checks tip width, open spaces between roots, mating tip/root clearance, usable involute contact, continuous tooth contact, and the app's coordinate range. The original workbook formula crosses the pinion tip at 8 teeth with a 30-tooth mate and 20° pressure angle; this pair is now blocked, while 9 teeth passes those geometric checks. A fixed minimum tooth count would not work across pressure angles and gear pairs. If the root circle lies outside the base circle, the generated involute now starts at the root and follows a sampled root arc instead of dipping back toward the base circle. The supplied 10/30 workbook trace remains unchanged.
+
+These checks establish a usable outline and basic mating geometry, not load strength or an exact manufactured fit. The workbook tooth thicknesses have zero nominal backlash; a teacher should still check material clearance, cutter access, and a test fit before relying on cut gears.
+
 ## Router workflow
 
 1. Load the workbook or enter gear values; select a single gear outline. A centered bore, if requested, becomes its own inside profile. Alternatively, load a DXF of closed profiles.
