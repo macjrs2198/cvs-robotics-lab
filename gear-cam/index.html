@@ -88,7 +88,8 @@
 
             <section class="panel export-panel" aria-labelledby="export-heading">
               <div class="panel-heading compact"><div><p class="eyebrow">FILES FOR YOUR NEXT STEP</p><h2 id="export-heading">Export</h2></div></div>
-              <div class="export-actions"><button id="download-dxf" type="button" class="button button--secondary" disabled><span>Download DXF</span><small>For CAD and drawing checks</small></button><button id="download-gcode" type="button" class="button button--primary" disabled><span>Download G-code</span><small>For Universal G-code Sender</small></button></div>
+              <div class="export-actions"><button id="download-dxf" type="button" class="button button--secondary" disabled><span>Download DXF</span><small>Millimeter drawing for Inventor/CAD</small></button><button id="download-gcode" type="button" class="button button--primary" disabled><span>Download G-code</span><small>For Universal G-code Sender</small></button></div>
+              <p class="field-note">Inventor: open a Part, start a 2D Sketch, then use Sketch → Insert → ACAD and select the DXF profiles.</p>
               <div id="validation-messages" class="validation-messages" role="status" aria-live="polite"></div>
               <p class="machine-check">Before running a cut: confirm units and origin in UGS, inspect the toolpath and clearance, and make an air cut with the spindle off.</p>
             </section>

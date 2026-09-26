@@ -1,3 +1,5 @@
+import { BLANK_DXF_2018 } from './dxf-template.js';
+
 /**
  * Geometry-to-CAM engine for ordered, closed 2D profiles.
  *
@@ -340,26 +342,121 @@ function checkTravelBounds(path, bore, cutDepth, s) {
   }
 }
 
+/** Fill an entity-free AutoCAD 2018 scaffold with the current design contours.
+ * The bundled scaffold has complete standard tables, classes, layouts and
+ * object dictionaries, but no source drawing or user metadata. No DXF library
+ * or network request is needed when the browser exports a job.
+ */
+function dxfGuid() {
+  if (globalThis.crypto?.randomUUID) return `{${globalThis.crypto.randomUUID().toUpperCase()}}`;
+  const bytes = new Uint8Array(16);
+  if (globalThis.crypto?.getRandomValues) globalThis.crypto.getRandomValues(bytes);
+  else for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const digits = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('').toUpperCase();
+  return `{${digits.slice(0, 8)}-${digits.slice(8, 12)}-${digits.slice(12, 16)}-${digits.slice(16, 20)}-${digits.slice(20)}}`;
+}
+
+function dxfDocument(entities, unit) {
+  const scale = unit === 'in' ? 1 / 25.4 : 1;
+  const templateLines = BLANK_DXF_2018.trimEnd().split('\n');
+  if (templateLines.length % 2 !== 0) throw new Error('DXF template has an incomplete group pair.');
+  const groups = [];
+  for (let i = 0; i < templateLines.length; i += 2) {
+    groups.push({ code: templateLines[i], value: templateLines[i + 1] });
+  }
+  const makeGroups = (...values) => {
+    const result = [];
+    for (let i = 0; i < values.length; i += 2) {
+      result.push({ code: String(values[i]), value: String(values[i + 1]) });
+    }
+    return result;
+  };
+  const findModelSpace = () => {
+    for (let i = 0; i < groups.length; i++) {
+      if (groups[i].code !== '0' || groups[i].value !== 'BLOCK_RECORD') continue;
+      let name, id;
+      for (let j = i + 1; j < groups.length && groups[j].code !== '0'; j++) {
+        if (groups[j].code === '2') name = groups[j].value;
+        if (groups[j].code === '5') id = groups[j].value;
+      }
+      if (name === '*Model_Space' && id) return id;
+    }
+    throw new Error('DXF template has no model-space block record.');
+  };
+  const modelHandle = findModelSpace();
+  let nextHandle = Math.max(0x100, ...groups
+    .filter(group => group.code === '5' || group.code === '105')
+    .map(group => Number.parseInt(group.value, 16) + 1));
+  const handle = () => (nextHandle++).toString(16).toUpperCase();
+  const entityGroups = [];
+  const emit = (...values) => entityGroups.push(...makeGroups(...values));
+  const drawingBounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+  const addPoint = (x, y) => {
+    drawingBounds.minX = Math.min(drawingBounds.minX, x);
+    drawingBounds.minY = Math.min(drawingBounds.minY, y);
+    drawingBounds.maxX = Math.max(drawingBounds.maxX, x);
+    drawingBounds.maxY = Math.max(drawingBounds.maxY, y);
+  };
+  for (const entity of entities) {
+    if (entity.kind === 'circle') {
+      addPoint(entity.center.x - entity.radius, entity.center.y - entity.radius);
+      addPoint(entity.center.x + entity.radius, entity.center.y + entity.radius);
+      emit('0', 'CIRCLE', '5', handle(), '330', modelHandle,
+        '100', 'AcDbEntity', '8', '0', '100', 'AcDbCircle',
+        '10', fmtDxf(entity.center.x * scale), '20', fmtDxf(entity.center.y * scale),
+        '30', '0', '40', fmtDxf(entity.radius * scale));
+    } else {
+      const polylineHandle = handle();
+      emit('0', 'POLYLINE', '5', polylineHandle, '330', modelHandle,
+        '100', 'AcDbEntity', '8', '0', '100', 'AcDb2dPolyline',
+        '66', '1', '10', '0', '20', '0', '30', '0', '70', '1');
+      for (const p of entity.points) {
+        addPoint(p.x, p.y);
+        emit('0', 'VERTEX', '5', handle(), '330', polylineHandle,
+          '100', 'AcDbEntity', '8', '0', '100', 'AcDbVertex', '100', 'AcDb2dVertex',
+          '10', fmtDxf(p.x * scale), '20', fmtDxf(p.y * scale), '30', '0');
+      }
+      emit('0', 'SEQEND', '5', handle(), '330', polylineHandle,
+        '100', 'AcDbEntity', '8', '0');
+    }
+  }
+  const setHeader = (name, ...values) => {
+    const index = groups.findIndex((group, i) => group.code === '9' &&
+      group.value === name && groups.slice(0, i).some(g => g.code === '2' && g.value === 'HEADER'));
+    if (index < 0) throw new Error(`DXF template is missing ${name}.`);
+    let end = index + 1;
+    while (end < groups.length && groups[end].code !== '9' && groups[end].code !== '0') end++;
+    groups.splice(index + 1, end - index - 1, ...makeGroups(...values));
+  };
+  setHeader('$HANDSEED', '5', nextHandle.toString(16).toUpperCase());
+  setHeader('$EXTMIN', '10', fmtDxf(drawingBounds.minX * scale),
+    '20', fmtDxf(drawingBounds.minY * scale), '30', '0');
+  setHeader('$EXTMAX', '10', fmtDxf(drawingBounds.maxX * scale),
+    '20', fmtDxf(drawingBounds.maxY * scale), '30', '0');
+  setHeader('$INSUNITS', '70', unit === 'in' ? '1' : '4');
+  setHeader('$MEASUREMENT', '70', unit === 'in' ? '0' : '1');
+  setHeader('$FINGERPRINTGUID', '2', dxfGuid());
+  setHeader('$VERSIONGUID', '2', dxfGuid());
+  const entitiesSection = groups.findIndex((group, i) => group.code === '0' &&
+    group.value === 'SECTION' && groups[i + 1]?.code === '2' && groups[i + 1].value === 'ENTITIES');
+  if (entitiesSection < 0 || groups[entitiesSection + 2]?.value !== 'ENDSEC') {
+    throw new Error('DXF template must have an empty ENTITIES section.');
+  }
+  groups.splice(entitiesSection + 2, 0, ...entityGroups);
+  return groups.map(group => `${group.code}\r\n${group.value}`).join('\r\n') + '\r\n';
+}
+
 /** Export the source drawing as a closed DXF polyline plus optional circle. */
 export function exportDXF({ outline: inputOutline, boreDiameter = 0, unit = 'mm' } = {}) {
   const outline = prepareOutline(inputOutline);
   validateBore(outline, boreDiameter);
   if (!['mm', 'in'].includes(unit)) throw new Error('DXF unit must be "mm" or "in".');
-  const scale = unit === 'in' ? 1 / 25.4 : 1;
-  const rows = [
-    '0', 'SECTION', '2', 'HEADER',
-    '9', '$ACADVER', '1', 'AC1015',
-    '9', '$INSUNITS', '70', unit === 'in' ? '1' : '4',
-    '9', '$MEASUREMENT', '70', unit === 'in' ? '0' : '1',
-    '0', 'ENDSEC', '0', 'SECTION', '2', 'ENTITIES',
-    '0', 'LWPOLYLINE', '100', 'AcDbEntity', '8', 'GEAR_OUTLINE',
-    '100', 'AcDbPolyline', '90', String(outline.length), '70', '1',
-  ];
-  for (const p of outline) rows.push('10', fmtDxf(p.x * scale), '20', fmtDxf(p.y * scale));
-  if (boreDiameter) rows.push('0', 'CIRCLE', '100', 'AcDbEntity', '8', 'BORE',
-    '100', 'AcDbCircle', '10', '0', '20', '0', '30', '0', '40', fmtDxf(boreDiameter * scale / 2));
-  rows.push('0', 'ENDSEC', '0', 'EOF');
-  return rows.join('\n') + '\n';
+  const entities = [{ kind: 'polyline', points: outline }];
+  if (boreDiameter) entities.push({ kind: 'circle',
+    center: { x: 0, y: 0 }, radius: boreDiameter / 2 });
+  return dxfDocument(entities, unit);
 }
 
 function perimeterData(points) {
@@ -542,14 +639,7 @@ export function exportJobDXF({ profiles, unit = 'mm' } = {}) {
     throw new Error('DXF export needs 1 to 32 profiles.');
   }
   if (!['mm', 'in'].includes(unit)) throw new Error('DXF unit must be "mm" or "in".');
-  const scale = unit === 'in' ? 1 / 25.4 : 1;
-  const rows = [
-    '0', 'SECTION', '2', 'HEADER', '9', '$ACADVER', '1', 'AC1015',
-    '9', '$INSUNITS', '70', unit === 'in' ? '1' : '4',
-    '9', '$MEASUREMENT', '70', unit === 'in' ? '0' : '1',
-    '0', 'ENDSEC', '0', 'SECTION', '2', 'ENTITIES',
-  ];
-  profiles.forEach((profile, i) => {
+  const entities = profiles.map((profile, i) => {
     const points = prepareOutline(profile.points);
     if (profile.kind === 'circle' && profile.center && profile.radius != null) {
       const center = {
@@ -562,15 +652,9 @@ export function exportJobDXF({ profiles, unit = 'mm' } = {}) {
           points.some(p => Math.abs(Math.hypot(p.x - center.x, p.y - center.y) - radius) > Math.max(0.005, radius * 1e-5))) {
         throw new Error(`Profile ${i + 1} circle metadata does not match its sampled contour; cannot export an exact CIRCLE.`);
       }
-      rows.push('0', 'CIRCLE', '100', 'AcDbEntity', '8', `PROFILE_${i + 1}`,
-        '100', 'AcDbCircle', '10', fmtDxf(center.x * scale),
-        '20', fmtDxf(center.y * scale), '30', '0', '40', fmtDxf(radius * scale));
-      return;
+      return { kind: 'circle', center, radius };
     }
-    rows.push('0', 'LWPOLYLINE', '100', 'AcDbEntity', '8', `PROFILE_${i + 1}`,
-      '100', 'AcDbPolyline', '90', String(points.length), '70', '1');
-    for (const p of points) rows.push('10', fmtDxf(p.x * scale), '20', fmtDxf(p.y * scale));
+    return { kind: 'polyline', points };
   });
-  rows.push('0', 'ENDSEC', '0', 'EOF');
-  return rows.join('\n') + '\n';
+  return dxfDocument(entities, unit);
 }

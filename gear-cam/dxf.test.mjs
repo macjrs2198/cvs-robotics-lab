@@ -19,18 +19,35 @@ test('imports gear DXF and centered bore exported by the CAM engine', () => {
     assert.equal(result.sourceUnits, unit);
     assert.equal(result.profiles.length, 2);
     const [outside, bore] = result.profiles;
-    assert.equal(outside.layer, 'GEAR_OUTLINE');
+    assert.equal(outside.layer, '0');
+    assert.equal(outside.sourceEntity, 'POLYLINE');
     assert.equal(outside.points.length, gear.points.length);
     assert.equal(outside.closed, true);
     // The exporter rounds to four decimal places in the selected units.
     assert.ok(Math.hypot(outside.points[20].x - gear.points[20].x,
       outside.points[20].y - gear.points[20].y) < (unit === 'in' ? 0.002 : 0.0001));
     assert.equal(bore.kind, 'circle');
-    assert.equal(bore.layer, 'BORE');
+    assert.equal(bore.layer, '0');
     assert.ok(Math.abs(bore.radius - 6) < (unit === 'in' ? 0.002 : 0.0001));
     assert.deepEqual(bore.center, { x: 0, y: 0 });
     assert.deepEqual(bore.points[0], bore.points.at(-1));
   }
+});
+
+test('imports closed legacy POLYLINE with VERTEX bulge and rejects incomplete sequences', () => {
+  const vertex = (x, y, bulge = 0) => ['0', 'VERTEX', '10', String(x), '20', String(y), '30', '0',
+    ...(bulge ? ['42', String(bulge)] : [])];
+  const header = ['0', 'POLYLINE', '8', '0', '66', '1', '70', '1',
+    '10', '0', '20', '0', '30', '0'];
+  const data = [...header, ...vertex(0, 0, 1), ...vertex(10, 0), ...vertex(5, -5), '0', 'SEQEND'];
+  const { profiles } = parseDXF(document(data));
+  assert.equal(profiles[0].sourceEntity, 'POLYLINE');
+  assert.ok(profiles[0].points.length > 10);
+  assert.deepEqual(profiles[0].points[0], profiles[0].points.at(-1));
+  assert.throws(() => parseDXF(document(data.slice(0, -2))), /missing SEQEND/);
+  assert.throws(() => parseDXF(document(['0', 'VERTEX', '10', '0', '20', '0'])), /without a preceding POLYLINE/);
+  assert.throws(() => parseDXF(document([...header.slice(0, 6), '70', '8', ...header.slice(8),
+    ...vertex(0, 0), ...vertex(10, 0), ...vertex(0, 10), '0', 'SEQEND'])), /mesh, 3D/);
 });
 
 test('stitches shuffled LibreCAD LINE entities into a closed loop in inches', () => {

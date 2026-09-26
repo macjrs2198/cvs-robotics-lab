@@ -166,11 +166,16 @@ test('cutter disk cannot gouge a neighboring disjoint profile', () => {
 
 test('combined DXF exports original closed contours in mm or inches and roundtrips', () => {
   const profiles = [bore, outer];
-  const metric = exportJobDXF({ profiles, unit: 'mm' });
-  const imperial = exportJobDXF({ profiles, unit: 'in' });
+  const rawMetric = exportJobDXF({ profiles, unit: 'mm' });
+  assert.match(rawMetric, /\r\n/);
+  const metric = rawMetric.replace(/\r\n?/g, '\n');
+  const imperial = exportJobDXF({ profiles, unit: 'in' }).replace(/\r\n?/g, '\n');
+  assert.match(metric, /\$ACADVER\n1\nAC1032\n/);
   assert.match(metric, /\$INSUNITS\n70\n4\n/);
-  assert.equal((metric.match(/LWPOLYLINE/g) ?? []).length, 2);
-  assert.match(metric, /PROFILE_1\n100\nAcDbPolyline\n90\n96\n70\n1/);
+  assert.equal((metric.match(/\nPOLYLINE\n/g) ?? []).length, 2);
+  assert.equal((metric.match(/\nVERTEX\n/g) ?? []).length, circle.length + square.length);
+  assert.equal((metric.match(/\nSEQEND\n/g) ?? []).length, 2);
+  assert.match(metric, /8\n0\n100\nAcDb2dPolyline\n66\n1\n10\n0\n20\n0\n30\n0\n70\n1/);
   assert.match(imperial, /\$INSUNITS\n70\n1\n/);
   const parsed = parseDXF(metric);
   assert.equal(parsed.profiles.length, 2);
@@ -182,12 +187,51 @@ test('combined DXF exports original closed contours in mm or inches and roundtri
 
 test('exact circle metadata exports a DXF CIRCLE; stale metadata is rejected', () => {
   const withCircle = { ...bore, kind: 'circle', center: { x: 0, y: 0 }, radius: 5 };
-  const dxf = exportJobDXF({ profiles: [withCircle, outer] });
+  const dxf = exportJobDXF({ profiles: [withCircle, outer] }).replace(/\r\n?/g, '\n');
   assert.equal((dxf.match(/\nCIRCLE\n/g) ?? []).length, 1);
-  assert.equal((dxf.match(/\nLWPOLYLINE\n/g) ?? []).length, 1);
+  assert.equal((dxf.match(/\nPOLYLINE\n/g) ?? []).length, 1);
   const imported = parseDXF(dxf);
   assert.equal(imported.profiles[0].kind, 'circle');
   assert.equal(imported.profiles[0].radius, 5);
   assert.throws(() => exportJobDXF({ profiles: [{ ...withCircle, radius: 4 }] }),
     /metadata does not match/);
+});
+
+test('Inventor-style DXF owns its POLYLINE vertices and uses layer 0', () => {
+  const withCircle = { ...bore, kind: 'circle', center: { x: 0, y: 0 }, radius: 5 };
+  const dxf = exportJobDXF({ profiles: [withCircle, outer] }).replace(/\r\n?/g, '\n');
+  const lines = dxf.trimEnd().split('\n');
+  assert.equal(lines.length % 2, 0);
+  const records = [];
+  for (let i = 0; i < lines.length; i += 2) {
+    if (lines[i] === '0') records.push({ type: lines[i + 1], fields: new Map() });
+    else records.at(-1).fields.set(lines[i], lines[i + 1]);
+  }
+  const field = (r, group) => r.fields.get(group);
+  const layerNames = new Set(records.filter(r => r.type === 'LAYER').map(r => field(r, '2')));
+  assert.deepEqual(layerNames, new Set(['0', 'Defpoints']));
+  const model = records.find(r => r.type === 'BLOCK_RECORD' && field(r, '2') === '*Model_Space');
+  assert.ok(model);
+  assert.ok(records.some(r => r.type === 'BLOCK' && field(r, '330') === field(model, '5')));
+  const entities = records.filter(r => ['CIRCLE', 'POLYLINE'].includes(r.type));
+  assert.deepEqual(entities.map(r => r.type), ['CIRCLE', 'POLYLINE']);
+  for (const entity of entities) {
+    assert.ok(layerNames.has(field(entity, '8')));
+    assert.equal(field(entity, '330'), field(model, '5'));
+  }
+  const polyline = entities.find(r => r.type === 'POLYLINE');
+  const owned = records.filter(r => ['VERTEX', 'SEQEND'].includes(r.type));
+  assert.equal(owned.length, square.length + 1);
+  assert.ok(owned.every(r => field(r, '330') === field(polyline, '5')));
+  const handles = records.map(r => field(r, '5')).filter(Boolean);
+  assert.equal(new Set(handles).size, handles.length);
+  assert.match(dxf, /\$ACADVER\n1\nAC1032\n/);
+  assert.match(dxf, /\$HANDSEED\n5\n[0-9A-F]+\n/);
+  const guid = (document, key) => document.match(new RegExp(`\\${key}\\n2\\n(\\{[0-9A-F-]+\\})\\n`))?.[1];
+  const second = exportJobDXF({ profiles: [withCircle, outer] }).replace(/\r\n?/g, '\n');
+  for (const key of ['$FINGERPRINTGUID', '$VERSIONGUID']) {
+    assert.match(guid(dxf, key), /^\{[0-9A-F]{8}(?:-[0-9A-F]{4}){3}-[0-9A-F]{12}\}$/);
+    assert.notEqual(guid(dxf, key), guid(second, key));
+  }
+  assert.equal(records.at(-1).type, 'EOF');
 });

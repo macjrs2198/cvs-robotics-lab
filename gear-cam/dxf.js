@@ -2,7 +2,9 @@
 const MM_PER_INCH = 25.4;
 const MAX_PROFILES = 100;
 const MAX_POINTS = 6000;
-const MAX_ENTITIES = 20000;
+// Legacy POLYLINE uses one VERTEX entity for every point, so the raw entity
+// count can exceed the profile count by thousands even in a small drawing.
+const MAX_ENTITIES = 200000;
 const TOLERANCE_MM = 0.02;
 const JOIN_TOLERANCE_MM = 0.0001;
 
@@ -61,6 +63,21 @@ function close(points, description) {
   return points;
 }
 
+function samplePolyline(vertices, layer, flags, type, id) {
+  const coincident = vertices.length >= 2 && pointDistance(vertices[0], vertices.at(-1)) < 1e-6;
+  if (!(flags & 1) && !coincident) throw new Error(`DXF ${type} on layer "${layer}" is open; close it before cutting.`);
+  if (coincident) vertices.pop();
+  if (vertices.length < 3) throw new Error(`DXF ${type} needs at least three distinct vertices.`);
+  let points = [{ x: vertices[0].x, y: vertices[0].y }];
+  for (let i = 0; i < vertices.length; i++) {
+    const v = vertices[i], next = vertices[(i + 1) % vertices.length];
+    points.push(...arcPoints(v, next, v.bulge));
+    if (points.length > MAX_POINTS + 1) throw new Error('DXF profile exceeds the vertex limit.');
+  }
+  points = close(points, type);
+  return { id, layer, kind: 'polyline', sourceEntity: type, closed: true, points };
+}
+
 function polyline(groups, scale, id) {
   planar(groups, 'LWPOLYLINE');
   const layer = first(groups, 8, '0');
@@ -81,18 +98,34 @@ function polyline(groups, scale, id) {
   if (vertices.length !== declared || vertices.some((v) => v.y == null)) {
     throw new Error('DXF LWPOLYLINE has incomplete or mismatched XY vertices.');
   }
-  const coincident = vertices.length >= 2 && pointDistance(vertices[0], vertices.at(-1)) < 1e-6;
-  if (!(flags & 1) && !coincident) throw new Error(`DXF LWPOLYLINE on layer "${layer}" is open; close it before cutting.`);
-  if (coincident) vertices.pop();
-  if (vertices.length < 3) throw new Error('DXF LWPOLYLINE needs at least three distinct vertices.');
-  let points = [{ x: vertices[0].x, y: vertices[0].y }];
-  for (let i = 0; i < vertices.length; i++) {
-    const v = vertices[i], next = vertices[(i + 1) % vertices.length];
-    points.push(...arcPoints(v, next, v.bulge));
-    if (points.length > MAX_POINTS + 1) throw new Error('DXF profile exceeds the vertex limit.');
+  return samplePolyline(vertices, layer, flags, 'LWPOLYLINE', id);
+}
+
+function legacyPolyline(header, vertexEntities, scale, id) {
+  planar(header.groups, 'POLYLINE');
+  const layer = first(header.groups, 8, '0');
+  const flags = number(first(header.groups, 70, '0'), 'POLYLINE flags');
+  if (flags & ~1) {
+    throw new Error('DXF POLYLINE is a mesh, 3D, or curve-fit entity; only closed 2D profiles are supported.');
   }
-  points = close(points, 'LWPOLYLINE');
-  return { id, layer, kind: 'polyline', sourceEntity: 'LWPOLYLINE', closed: true, points };
+  const vertices = vertexEntities.map(entity => {
+    planar(entity.groups, 'VERTEX');
+    if (number(first(entity.groups, 70, '0'), 'VERTEX flags') !== 0) {
+      throw new Error('DXF POLYLINE contains curve-fit, mesh, or 3D vertices; convert it to a closed 2D profile.');
+    }
+    for (const code of [40, 41]) {
+      const value = first(entity.groups, code);
+      if (value != null && Math.abs(number(value, 'VERTEX width')) > 1e-12) {
+        throw new Error('DXF POLYLINE has nonzero width; convert it to a closed centerline profile first.');
+      }
+    }
+    return {
+      x: number(first(entity.groups, 10), 'VERTEX X') * scale,
+      y: number(first(entity.groups, 20), 'VERTEX Y') * scale,
+      bulge: number(first(entity.groups, 42, '0'), 'VERTEX bulge'),
+    };
+  });
+  return samplePolyline(vertices, layer, flags, 'POLYLINE', id);
 }
 
 function circle(groups, scale, id) {
@@ -204,7 +237,7 @@ function groupsFromText(text) {
 }
 
 /**
- * Read closed LWPOLYLINE and CIRCLE profiles, including polyline bulge arcs.
+ * Read closed LWPOLYLINE, legacy 2D POLYLINE, and CIRCLE profiles, including bulge arcs.
  * `$INSUNITS` 1 (inches) and 4 (mm) are supported. For unitless files, pass
  * `{ unitOverride: 'mm' }` or `'in'` after confirming the drawing's units.
  */
@@ -241,9 +274,9 @@ export function parseDXF(text, { unitOverride } = {}) {
   if (!entities.length) throw new Error('DXF has no drawing entities to cut.');
   if (entities.length > MAX_ENTITIES) throw new Error(`DXF exceeds ${MAX_ENTITIES} drawing entities; simplify it.`);
   const unsupported = [...new Set(entities.map((e) => e.type)
-    .filter((type) => !['LWPOLYLINE', 'CIRCLE', 'LINE'].includes(type)))];
+    .filter((type) => !['LWPOLYLINE', 'POLYLINE', 'VERTEX', 'SEQEND', 'CIRCLE', 'LINE'].includes(type)))];
   if (unsupported.length) {
-    throw new Error(`Unsupported DXF entities: ${unsupported.join(', ')}. Convert them to closed LWPOLYLINE, CIRCLE, or connected LINE profiles.`);
+    throw new Error(`Unsupported DXF entities: ${unsupported.join(', ')}. Convert them to closed POLYLINE, LWPOLYLINE, CIRCLE, or connected LINE profiles.`);
   }
   if (unitOverride != null && !['mm', 'in'].includes(unitOverride)) {
     throw new Error('DXF unit override must be mm or in.');
@@ -256,8 +289,21 @@ export function parseDXF(text, { unitOverride } = {}) {
   const scale = sourceUnits === 'in' ? MM_PER_INCH : 1;
   const lines = [];
   const indexed = [];
-  for (const [index, entity] of entities.entries()) {
+  for (let index = 0; index < entities.length; index++) {
+    const entity = entities[index];
     if (entity.type === 'LINE') lines.push(line(entity.groups, scale, index));
+    else if (entity.type === 'POLYLINE') {
+      const vertexEntities = [];
+      let cursor = index + 1;
+      while (entities[cursor]?.type === 'VERTEX') vertexEntities.push(entities[cursor++]);
+      if (entities[cursor]?.type !== 'SEQEND') {
+        throw new Error('DXF POLYLINE is missing SEQEND after its vertices.');
+      }
+      indexed.push({ order: index, ...legacyPolyline(entity, vertexEntities, scale, '') });
+      index = cursor;
+    } else if (entity.type === 'VERTEX' || entity.type === 'SEQEND') {
+      throw new Error(`DXF ${entity.type} appears without a preceding POLYLINE.`);
+    }
     else indexed.push({ order: index, ...(entity.type === 'LWPOLYLINE' ?
       polyline(entity.groups, scale, '') : circle(entity.groups, scale, '')) });
   }
