@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Build spur gears from Creek Valley's gear spreadsheet, preview the drawing, and export DXF or GRBL toolpaths.">
+    <title>CVS Gear Cutter · CVS Robotics Lab</title>
+    <link rel="icon" href="../assets/stormy.png" type="image/png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="./styles.css">
+    <script type="module" src="./app.js"></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="app-header">
+        <a class="brand" href="../" aria-label="Back to CVS Robotics Lab"><img src="../assets/stormy.png" alt=""><span>CVS Robotics Lab</span></a>
+        <div class="header-title"><p class="eyebrow">DESIGN · FABRICATE</p><h1>CVS Gear Cutter</h1></div>
+        <a class="return-link" href="../">Return to lab <span aria-hidden="true">↗</span></a>
+      </header>
+
+      <main class="workspace">
+        <div class="page-intro">
+          <p>Enter a gear pair, load your spreadsheet, or open a DXF drawing. Check the contours, then download a drawing or GRBL file for Universal G-code Sender.</p>
+          <p class="workflow-steps" aria-label="Workflow"><span>01 · Gear pair</span><span>02 · Drawing</span><span>03 · Cut setup</span></p>
+        </div>
+
+        <div class="workspace-grid">
+          <div class="controls-column">
+            <section class="panel" aria-labelledby="gear-heading">
+              <div class="panel-heading"><span class="step-number">01</span><div><p class="eyebrow">SPREADSHEET · DXF · MANUAL INPUT</p><h2 id="gear-heading">Drawing source</h2></div></div>
+
+              <div class="source-imports"><label class="file-drop" for="workbook-file"><span class="file-icon" aria-hidden="true">↥</span><span><strong>Load gear spreadsheet</strong><small>.xlsm or .xlsx · fills the pair settings</small></span><input id="workbook-file" type="file" accept=".xlsm,.xlsx,application/vnd.ms-excel.sheet.macroEnabled.12,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"></label><label class="file-drop" for="dxf-file"><span class="file-icon" aria-hidden="true">↥</span><span><strong>Open a DXF drawing</strong><small>Closed 2D profiles · cut each contour in order</small></span><input id="dxf-file" type="file" accept=".dxf,application/dxf,image/vnd.dxf"></label></div>
+              <p id="source-status" class="field-note" role="status" aria-live="polite">Or enter the gear pair values yourself.</p>
+              <div id="dxf-units-prompt" class="units-prompt" hidden><label>DXF drawing units<select id="dxf-unit-override"><option value="mm">Millimeters</option><option value="in">Inches</option></select></label><button id="retry-dxf" type="button" class="text-button">Load using these units</button></div>
+              <button id="use-gear-pair" type="button" class="text-button" hidden>Use gear pair instead</button>
+
+              <form id="gear-form" novalidate>
+                <h3>Gear pair settings</h3>
+                <div class="form-grid">
+                  <label>Pinion teeth<input id="pinion-teeth" name="pinionTeeth" type="number" min="4" max="300" step="1" inputmode="numeric" required value="10"></label>
+                  <label>Gear teeth<input id="gear-teeth" name="gearTeeth" type="number" min="4" max="300" step="1" inputmode="numeric" required value="30"></label>
+                  <label>Center distance <span class="unit">in</span><input id="center-distance" name="centerDistance" type="number" min="0.01" step="any" inputmode="decimal" required value="7"></label>
+                  <label>Pressure angle <span class="unit">°</span><input id="pressure-angle" name="pressureAngleDeg" type="number" min="0.01" max="44.99" step="any" inputmode="decimal" required value="20"></label>
+                </div>
+                <details class="advanced-inputs"><summary>Dedendum safety factors</summary><div class="form-grid"><label>Pinion factor<input id="pinion-safety" name="pinionSafety" type="number" min="0.01" step="any" inputmode="decimal" required value="1.1"></label><label>Gear factor<input id="gear-safety" name="gearSafety" type="number" min="0.01" step="any" inputmode="decimal" required value="1.1"></label></div><p class="field-note">These match cells J4 and J9 in the spreadsheet.</p></details>
+              </form>
+            </section>
+
+            <section class="panel cut-panel" aria-labelledby="cut-heading">
+              <div class="panel-heading"><span class="step-number">03</span><div><p class="eyebrow">CNC ROUTER · GRBL</p><h2 id="cut-heading">Cut setup</h2></div></div>
+              <p class="section-copy">Set the cut order and use values approved for your bit, material, and machine. The G-code button unlocks when the setup is complete.</p>
+              <div class="cut-list-heading"><h3>Cut order</h3><p>Top profile cuts first. <strong>Outside</strong> preserves the outer size; <strong>Inside</strong> preserves a hole; <strong>On line</strong> removes material on both sides.</p></div>
+              <ol id="cut-list" class="cut-list"></ol>
+              <form id="cut-form" novalidate>
+                <h3>Router settings</h3>
+                <div class="form-grid">
+                  <label>Bit diameter <span class="unit">mm</span><input id="tool-diameter" name="toolDiameter" type="number" min="0.01" step="any" inputmode="decimal" placeholder="e.g. 3.175" required></label>
+                  <label>Stock thickness <span class="unit">mm</span><input id="stock-thickness" name="stockThickness" type="number" min="0.01" step="any" inputmode="decimal" placeholder="Measured stock" required></label>
+                  <label>Number of passes<input id="pass-count" name="passCount" type="number" min="1" max="2000" step="1" inputmode="numeric" placeholder="e.g. 4" required></label>
+                  <label>Depth per pass <span class="unit">mm</span><input id="step-down" name="stepDown" type="number" min="0.01" step="any" inputmode="decimal" placeholder="e.g. 1.5" required></label>
+                  <label>Safe Z above stock <span class="unit">mm</span><input id="safe-z" name="safeZ" type="number" min="0.01" step="any" inputmode="decimal" placeholder="Clear clamps" required></label>
+                  <label>XY feed <span class="unit">mm/min</span><input id="feed-rate" name="feedRate" type="number" min="0.01" step="any" inputmode="decimal" placeholder="Cutting speed" required></label>
+                  <label>Plunge feed <span class="unit">mm/min</span><input id="plunge-rate" name="plungeRate" type="number" min="0.01" step="any" inputmode="decimal" placeholder="Plunge speed" required></label>
+                  <label>Spindle speed <span class="unit">RPM</span><input id="spindle-rpm" name="spindleRpm" type="number" min="1" step="1" inputmode="numeric" placeholder="Spindle RPM" required></label>
+                  <label>Leave bottom skin <span class="unit">mm</span><input id="skin-thickness" name="skinThickness" type="number" min="0" step="any" inputmode="decimal" placeholder="0 = cut through"></label>
+                  <label class="full-width">Work origin<select id="work-origin" name="workOrigin"><option value="center">Drawing origin · X0 Y0</option><option value="lower-left">Toolpath lower left · X0 Y0</option></select></label>
+                </div>
+                <p class="field-note">Final depth: <output id="final-depth">—</output> mm. <span id="pass-summary">Enter a pass count or depth per pass; the other value updates.</span> A bottom skin keeps the outline attached to the stock.</p>
+                <div class="setup-checks"><label><input id="confirm-origin" type="checkbox"> <span id="origin-instructions">I will set X0/Y0 at the gear center and Z0 at the stock top.</span></label><label><input id="confirm-center-bit" type="checkbox"> The installed bit can safely plunge into this material.</label><label id="through-cut-check" hidden><input id="confirm-hold-down" type="checkbox"> I have checked how every cutout is held by tabs or approved hold-down, with a sacrificial bed below.</label></div>
+                <p class="field-note">The file uses millimeters (G21) and absolute coordinates (G90). Spindle commands work only when the router is wired for them; start and stop a manual router by your machine procedure.</p>
+              </form>
+            </section>
+          </div>
+
+          <div class="drawing-column">
+            <section class="panel drawing-panel" aria-labelledby="drawing-heading">
+              <div class="panel-heading drawing-heading"><span class="step-number">02</span><div><p class="eyebrow">LIVE DRAWING</p><h2 id="drawing-heading">Choose a part</h2></div></div>
+              <div id="part-switch" class="part-switch" role="group" aria-label="Gear to export"><button id="select-pinion" type="button" class="part-option is-active" aria-pressed="true"><span>PINION</span><strong id="pinion-count">10 teeth</strong></button><button id="select-gear" type="button" class="part-option" aria-pressed="false"><span>GEAR</span><strong id="gear-count">30 teeth</strong></button></div>
+              <div class="drawing-surface"><svg id="gear-preview" viewBox="-110 -110 220 220" role="img" aria-labelledby="preview-title preview-desc"><title id="preview-title">Drawing preview</title><desc id="preview-desc">Closed contours with numbered cut order; dashed lines show bit center paths and orange segments mark tabs when cut settings are complete</desc><g id="preview-toolpaths"></g><g id="preview-contours"></g><g id="preview-tabpaths"></g><g id="preview-order"></g><path id="origin-mark" class="origin-mark" d="M-4 0H4 M0 -4V4" fill="none" stroke="currentColor" stroke-width="1" vector-effect="non-scaling-stroke"></path></svg><span class="drawing-label" id="drawing-label">PINION · TOP VIEW</span></div>
+              <div class="drawing-legend"><span><i class="legend-outline"></i> Drawn line</span><span id="toolpath-legend" hidden><i class="legend-toolpath"></i> Bit center</span><span id="tab-legend" hidden><i class="legend-tab"></i> Tab</span><span>Numbers · cut order</span></div>
+              <div id="drawing-summary" class="drawing-summary"><div><span>Diametral pitch</span><strong id="pitch-value">—</strong></div><div><span>Outside diameter</span><strong id="outside-value">—</strong></div><div><span>Root diameter</span><strong id="root-value">—</strong></div></div>
+              <div id="imported-summary" class="drawing-summary" hidden><div><span>Closed profiles</span><strong id="profile-count">—</strong></div><div><span>Drawing width</span><strong id="drawing-width">—</strong></div><div><span>Drawing height</span><strong id="drawing-height">—</strong></div></div>
+              <label id="bore-field" class="bore-field">Optional center circle <span class="unit">in</span><input id="bore-diameter" type="number" min="0" step="any" inputmode="decimal" placeholder="No center circle"></label><p id="bore-hint" class="field-note">The circle is a separate profile, cut before the outside contour by default.</p>
+              <p id="drawing-status" class="field-note" role="status" aria-live="polite"></p>
+            </section>
+
+            <section class="panel export-panel" aria-labelledby="export-heading">
+              <div class="panel-heading compact"><div><p class="eyebrow">FILES FOR YOUR NEXT STEP</p><h2 id="export-heading">Export</h2></div></div>
+              <div class="export-actions"><button id="download-dxf" type="button" class="button button--secondary" disabled><span>Download DXF</span><small>For CAD and drawing checks</small></button><button id="download-gcode" type="button" class="button button--primary" disabled><span>Download G-code</span><small>For Universal G-code Sender</small></button></div>
+              <div id="validation-messages" class="validation-messages" role="status" aria-live="polite"></div>
+              <p class="machine-check">Before running a cut: confirm units and origin in UGS, inspect the toolpath and clearance, and make an air cut with the spindle off.</p>
+            </section>
+          </div>
+        </div>
+      </main>
+    </div>
+  </body>
+</html>

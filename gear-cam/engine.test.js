@@ -1,0 +1,193 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { offsetOutside, offsetProfile, generateJob, exportJobDXF } from './engine.js';
+import { buildPair } from './gear.js';
+import { parseDXF } from './dxf.js';
+
+const square = [
+  { x: -10, y: -10 }, { x: 10, y: -10 },
+  { x: 10, y: 10 }, { x: -10, y: 10 },
+];
+const circle = Array.from({ length: 96 }, (_, i) => ({
+  x: 5 * Math.cos(2 * Math.PI * i / 96),
+  y: 5 * Math.sin(2 * Math.PI * i / 96),
+}));
+const settings = {
+  bitDiameter: 3.175,
+  materialThickness: 6,
+  stepdown: 2,
+  feedRate: 750,
+  plungeRate: 250,
+  safeZ: 8,
+  spindleRPM: 12000,
+  origin: 'center',
+  skinMm: 0.5,
+  centerCuttingConfirmed: true,
+};
+const bore = { id: 'hole', name: 'Bore', points: circle, side: 'inside' };
+const outer = { id: 'gear', name: 'Gear', points: square, side: 'outside' };
+
+function job(profiles, changes = {}) {
+  return generateJob({ profiles, settings: { ...settings, ...changes } });
+}
+
+test('outside/inside/on profiles have explicit cutter-side paths', () => {
+  assert.deepEqual(offsetOutside(square, 1), [
+    { x: -11, y: -11 }, { x: 11, y: -11 },
+    { x: 11, y: 11 }, { x: -11, y: 11 },
+  ]);
+  assert.deepEqual(offsetProfile(square, -1), [
+    { x: -9, y: -9 }, { x: 9, y: -9 },
+    { x: 9, y: 9 }, { x: -9, y: 9 },
+  ]);
+  assert.deepEqual(offsetProfile(square, 0), square);
+  const on = job([{ ...outer, side: 'on' }]);
+  assert.deepEqual(on.preview.profiles[0].toolCenterPath, square);
+});
+
+test('offset handles concave outline and blocks cutter too wide for a notch', () => {
+  const l = [
+    { x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 3 },
+    { x: 3, y: 3 }, { x: 3, y: 10 }, { x: 0, y: 10 },
+  ];
+  assert.deepEqual(offsetOutside(l, 0.25)[3], { x: 3.25, y: 3.25 });
+  const notch = [
+    { x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 },
+    { x: 6, y: 10 }, { x: 6, y: 2 }, { x: 5, y: 2 },
+    { x: 5, y: 10 }, { x: 0, y: 10 },
+  ];
+  assert.throws(() => offsetOutside(notch, 1), /smaller bit|diameter|compensated/i);
+  assert.throws(() => offsetProfile(square, -12), /folded|crosses|disappeared|cannot clear/i);
+});
+
+test('generates ordered profile-only G21 program with safe travel and skin', () => {
+  const result = job([bore, outer]);
+  const { gcode, preview, metadata } = result;
+  assert.match(gcode, /G21 G17 G90 G94 G54 G40/);
+  assert.match(gcode, /M3 S12000/);
+  assert.doesNotMatch(gcode, /\bG2\b|\bG3\b/);
+  assert.match(gcode, /G1 Z-5\.5 F250/);
+  assert.doesNotMatch(gcode, /G1 Z-6(?:\.0+)?(?:\s|$)/m);
+  assert.ok(gcode.indexOf('PROFILE 1: Bore; inside') < gcode.indexOf('PROFILE 2: Gear; outside'));
+  assert.ok(gcode.trimEnd().endsWith('M5\nM2'));
+  assert.deepEqual(preview.sequence, ['Bore', 'Gear']);
+  assert.deepEqual(metadata.passDepths, [-2, -4, -5.5]);
+  const lines = gcode.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].startsWith('G0 X')) assert.equal(lines[i - 1], 'G0 Z8');
+  }
+  const reversed = job([outer, bore]);
+  assert.deepEqual(reversed.preview.sequence, ['Gear', 'Bore']);
+  assert.ok(reversed.gcode.indexOf('PROFILE 1: Gear') < reversed.gcode.indexOf('PROFILE 2: Bore'));
+});
+
+test('tabs retain exact material height only on final deep passes and appear in preview', () => {
+  const tabs = { count: 4, widthMm: 5, heightMm: 1.5 };
+  const result = job([{ ...outer, tabs }], { skinMm: 0 });
+  const p = result.preview.profiles[0];
+  assert.equal(p.tabs.length, 4);
+  assert.ok(p.tabs.every(t => t.endMm > t.startMm && t.path.length >= 2));
+  assert.equal((result.gcode.match(/G1 Z-4\.5 F250/g) ?? []).length, 4);
+  assert.equal((result.gcode.match(/G1 Z-6 F250/g) ?? []).length, 5); // initial plunge + after each tab
+  assert.deepEqual(result.metadata.passDepths, [-2, -4, -6]);
+  assert.match(result.gcode, /G1 Z-4\.5 F250\nG1 X/);
+});
+
+test('tabs are rejected for inside profile or overlapping intervals', () => {
+  assert.throws(() => job([{ ...bore, tabs: { count: 2, widthMm: 5, heightMm: 1 } }]), /outside profiles only/);
+  assert.throws(() => job([{ ...outer, tabs: { count: 20, widthMm: 5, heightMm: 1 } }]), /overlap|little space/);
+  assert.throws(() => job([{ ...outer, tabs: { count: 4, widthMm: 2, heightMm: 1 } }]), /Tab width/);
+});
+
+test('full-depth un-tabbed profiles need hold-down and every pass needs plunge-capable bit', () => {
+  assert.throws(() => job([outer], { centerCuttingConfirmed: false }), /plunge/);
+  assert.throws(() => job([bore, { ...outer, tabs: { count: 4, widthMm: 5, heightMm: 1 } }], { skinMm: 0 }), /hold-down|loose cutouts/);
+  const result = job([bore, outer], { skinMm: 0, partHoldDownConfirmed: true });
+  assert.deepEqual(result.metadata.passDepths, [-2, -4, -6]);
+});
+
+test('lower-left origin translates all profiles; travel bounds are enforced', () => {
+  const travelBounds = { minX: 0, maxX: 24, minY: 0, maxY: 24, minZ: -6, maxZ: 9 };
+  const result = job([bore, outer], { origin: 'lower-left', travelBounds });
+  assert.equal(result.metadata.bounds.minX, 0);
+  assert.equal(result.metadata.bounds.minY, 0);
+  assert.ok(result.preview.profiles[0].toolCenterPath[0].x > 0);
+  assert.throws(() => job([bore, outer], { origin: 'lower-left', travelBounds: {
+    ...travelBounds, maxX: 20,
+  } }), /travel bounds/);
+});
+
+test('workbook default gear with 3.175 mm bit has a verified outside offset', () => {
+  const pair = buildPair({ pinionTeeth: 10, gearTeeth: 30, pressureAngleDeg: 20,
+    centerDistance: 7, pinionSafety: 1.1, gearSafety: 1.1 });
+  const result = job([{ name: '30 tooth gear', points: pair.gear.points,
+    side: 'outside', tabs: { count: 4, widthMm: 8, heightMm: 2 } }]);
+  assert.equal(result.preview.profiles[0].toolCenterPath.length, 1200);
+  assert.equal(result.preview.profiles[0].tabs.length, 4);
+  const pinion = job([{ name: '10 tooth pinion', points: pair.pinion.points,
+    side: 'outside', tabs: { count: 4, widthMm: 6, heightMm: 2 } }], {
+    skinMm: 0, passCount: 3,
+  });
+  assert.equal(pinion.preview.profiles[0].toolCenterPath.length, 400);
+  assert.equal(pinion.preview.profiles[0].tabs.length, 4);
+  assert.equal((pinion.gcode.match(/G1 Z-4 F250/g) ?? []).length, 5); // pass 2 plunge + four tab lifts at final depth
+  assert.deepEqual(pinion.metadata.passDepths, [-2, -4, -6]);
+});
+
+test('exact pass count yields equal depths and clear failure for undersized circular hole', () => {
+  const result = job([outer], { stepdown: undefined, passCount: 4 });
+  assert.deepEqual(result.metadata.passDepths, [-1.375, -2.75, -4.125, -5.5]);
+  assert.equal(result.metadata.effectiveStepdownMm, 1.375);
+  const tiny = circle.map(p => ({ x: p.x * 0.1, y: p.y * 0.1 }));
+  assert.throws(() => job([{ name: 'Tiny bore', points: tiny, side: 'inside' }]),
+    /smaller bit|cannot clear|folded|crosses|disappeared/i);
+});
+
+test('crossing source contours are blocked while nested hole and gear are allowed', () => {
+  const translated = square.map(p => ({ x: p.x + 15, y: p.y }));
+  assert.throws(() => job([outer, { name: 'Overlapping', points: translated, side: 'outside' }]),
+    /cross or touch/);
+  assert.equal(job([bore, outer]).preview.profiles.length, 2);
+});
+
+test('cutter disk cannot gouge a neighboring disjoint profile', () => {
+  const left = [
+    { x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 },
+  ];
+  const right = left.map(p => ({ x: p.x + 12, y: p.y }));
+  const profiles = [
+    { name: 'Left', points: left, side: 'outside' },
+    { name: 'Right', points: right, side: 'outside' },
+  ];
+  assert.throws(() => generateJob({ profiles, settings: { ...settings, bitDiameter: 3 } }),
+    /would reach profile 2|would reach profile 1/);
+  assert.equal(generateJob({ profiles, settings: { ...settings, bitDiameter: 1 } }).preview.profiles.length, 2);
+});
+
+test('combined DXF exports original closed contours in mm or inches and roundtrips', () => {
+  const profiles = [bore, outer];
+  const metric = exportJobDXF({ profiles, unit: 'mm' });
+  const imperial = exportJobDXF({ profiles, unit: 'in' });
+  assert.match(metric, /\$INSUNITS\n70\n4\n/);
+  assert.equal((metric.match(/LWPOLYLINE/g) ?? []).length, 2);
+  assert.match(metric, /PROFILE_1\n100\nAcDbPolyline\n90\n96\n70\n1/);
+  assert.match(imperial, /\$INSUNITS\n70\n1\n/);
+  const parsed = parseDXF(metric);
+  assert.equal(parsed.profiles.length, 2);
+  assert.equal(parsed.profiles[1].points.length, square.length + 1);
+  const parsedInches = parseDXF(imperial);
+  assert.ok(Math.abs(parsedInches.profiles[1].points[0].x - square[0].x) < 0.000001);
+  assert.throws(() => exportJobDXF({ profiles: [{ points: [square[0], square[1]] }] }), /3 to/);
+});
+
+test('exact circle metadata exports a DXF CIRCLE; stale metadata is rejected', () => {
+  const withCircle = { ...bore, kind: 'circle', center: { x: 0, y: 0 }, radius: 5 };
+  const dxf = exportJobDXF({ profiles: [withCircle, outer] });
+  assert.equal((dxf.match(/\nCIRCLE\n/g) ?? []).length, 1);
+  assert.equal((dxf.match(/\nLWPOLYLINE\n/g) ?? []).length, 1);
+  const imported = parseDXF(dxf);
+  assert.equal(imported.profiles[0].kind, 'circle');
+  assert.equal(imported.profiles[0].radius, 5);
+  assert.throws(() => exportJobDXF({ profiles: [{ ...withCircle, radius: 4 }] }),
+    /metadata does not match/);
+});

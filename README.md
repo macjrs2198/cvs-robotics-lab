@@ -1,6 +1,6 @@
 # CVS Robotics Lab
 
-CVS Robotics Lab is a static browser package containing three independent Blockly robotics simulators, a two-player robot battle game, and a separate practice Score & Strategy calculator:
+CVS Robotics Lab is a static browser package containing three independent Blockly robotics simulators, a two-player robot battle game, practice Score & Strategy tools, and a spur gear cutter:
 
 **Live student site:** https://macjrs2198.github.io/cvs-robotics-lab/
 
@@ -9,6 +9,7 @@ CVS Robotics Lab is a static browser package containing three independent Blockl
 - **CVS Analog Feedback** — potentiometers, motor control, and position feedback
 - **Robot Rumble** — two-player keyboard robot combat with directional blocking and arena hazards
 - **[CVS Score & Strategy](./score-strategy/)** — Byte to Bite practice-round scorer, independent three-minute timer, and optional measured task-time optimizer
+- **[CVS Gear Cutter](./gear-cam/)** — build a spur gear from the spreadsheet, import closed DXF profiles, order profile cuts with bit-side and tab controls, and export DXF or GRBL router files
 
 ## Run Locally
 

@@ -119,11 +119,12 @@ h1 {
 .launch-card--strategy {
   --accent: #b9a6ff;
   min-height: 174px;
-  grid-column: 1 / -1;
+  grid-column: span 2;
 }
+.launch-card--gear { --accent: #f5b96c; min-height: 174px; grid-column: span 2; }
 
-.launch-card--strategy h2 { margin-top: 14px; }
-.launch-card--strategy .launch-action { padding-top: 16px; }
+.launch-card--strategy h2, .launch-card--gear h2 { margin-top: 14px; }
+.launch-card--strategy .launch-action, .launch-card--gear .launch-action { padding-top: 16px; }
 
 .card-index {
   color: var(--accent);
@@ -168,7 +169,7 @@ h1 {
   .launcher-shell { align-content: start; }
   .launch-grid { grid-template-columns: 1fr; }
   .launch-card { min-height: 180px; }
-  .launch-card--strategy { grid-column: 1; }
+  .launch-card--strategy, .launch-card--gear { grid-column: 1; }
   .launcher-footer { flex-direction: column; }
 }
 
