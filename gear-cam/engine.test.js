@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { offsetOutside, offsetProfile, generateJob, exportJobDXF } from './engine.js';
+import { offsetOutside, offsetProfile, generateJob, generateToolpathPreview, exportJobDXF } from './engine.js';
 import { buildPair } from './gear.js';
 import { parseDXF } from './dxf.js';
 
@@ -45,6 +45,18 @@ test('outside/inside/on profiles have explicit cutter-side paths', () => {
   assert.deepEqual(on.preview.profiles[0].toolCenterPath, square);
 });
 
+test('side-selection preview moves immediately and matches production compensation', () => {
+  const outside = generateToolpathPreview({ profiles: [outer], bitDiameter: 3 });
+  const inside = generateToolpathPreview({ profiles: [{ ...outer, side: 'inside' }], bitDiameter: 3 });
+  const on = generateToolpathPreview({ profiles: [{ ...outer, side: 'on' }], bitDiameter: 3 });
+  assert.deepEqual(outside.preview.profiles[0].toolCenterPath, offsetProfile(square, 1.5));
+  assert.deepEqual(inside.preview.profiles[0].toolCenterPath, offsetProfile(square, -1.5));
+  assert.deepEqual(on.preview.profiles[0].toolCenterPath, square);
+  assert.deepEqual(outside.preview.profiles[0].toolCenterPath,
+    job([outer], { bitDiameter: 3 }).preview.profiles[0].toolCenterPath);
+  assert.equal(outside.metadata.bitDiameter, 3);
+});
+
 test('offset handles concave outline and blocks cutter too wide for a notch', () => {
   const l = [
     { x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 3 },
@@ -64,6 +76,7 @@ test('generates ordered profile-only G21 program with safe travel and skin', () 
   const result = job([bore, outer]);
   const { gcode, preview, metadata } = result;
   assert.match(gcode, /G21 G17 G90 G94 G54 G40/);
+  assert.match(gcode, /\(Bit 3\.175 mm = 0\.125 in;/);
   assert.match(gcode, /M3 S12000/);
   assert.doesNotMatch(gcode, /\bG2\b|\bG3\b/);
   assert.match(gcode, /G1 Z-5\.5 F250/);
@@ -132,6 +145,20 @@ test('workbook default gear with 3.175 mm bit has a verified outside offset', ()
   assert.equal(pinion.preview.profiles[0].tabs.length, 4);
   assert.equal((pinion.gcode.match(/G1 Z-4 F250/g) ?? []).length, 5); // pass 2 plunge + four tab lifts at final depth
   assert.deepEqual(pinion.metadata.passDepths, [-2, -4, -6]);
+});
+
+test('outside cut for a 9-tooth pinion keeps the gear inside the cutter path', () => {
+  const pair = buildPair({ pinionTeeth: 9, gearTeeth: 30, pressureAngleDeg: 20,
+    centerDistance: 4.75, pinionSafety: 1.1, gearSafety: 1.1 });
+  const result = job([{ name: 'Pinion outline', points: pair.pinion.points,
+    side: 'outside' }], { bitDiameter: 3 });
+  const { designPath, toolCenterPath } = result.preview.profiles[0];
+  const width = points => Math.max(...points.map(p => p.x)) - Math.min(...points.map(p => p.x));
+  const height = points => Math.max(...points.map(p => p.y)) - Math.min(...points.map(p => p.y));
+  assert.ok(width(toolCenterPath) - width(designPath) > 2.9);
+  assert.ok(height(toolCenterPath) - height(designPath) > 2.9);
+  assert.match(result.gcode,
+    /Pinion outline; outside; KEEP INSIDE SHAPE; BIT CENTER 1\.5 MM OUTSIDE/);
 });
 
 test('exact pass count yields equal depths and clear failure for undersized circular hole', () => {

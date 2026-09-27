@@ -1,11 +1,12 @@
 import { buildPair, parseWorkbook } from './gear.js';
 import { parseDXF } from './dxf.js';
-import { generateJob, exportJobDXF } from './engine.js';
+import { generateJob, generateToolpathPreview, exportJobDXF } from './engine.js';
+import { MIN_PROFILE_BIT_MM, normalizeBitDiameter } from './units.js';
 
 const MM_PER_INCH = 25.4;
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const $ = id => document.getElementById(id);
-const state = { mode: 'gear', part: 'pinion', pair: null, profiles: [], job: null,
+const state = { mode: 'gear', part: 'pinion', pair: null, profiles: [], job: null, cutPreview: null,
   fileName: '', depthMode: 'passes', pendingDXF: null, lockedDiametralPitch: null };
 const gearForm = $('gear-form');
 const cutForm = $('cut-form');
@@ -22,6 +23,7 @@ function invalidateSource() {
   state.profiles = [];
   state.pair = null;
   state.job = null;
+  state.cutPreview = null;
   renderCutList();
   $('drawing-label').textContent = 'NO DRAWING LOADED';
   status($('drawing-status'), 'Load a drawing or edit the gear values to continue.', 'error');
@@ -165,6 +167,39 @@ function rebuildGear() {
   $('drawing-label').textContent = state.part.toUpperCase() + ' · TOP VIEW';
 }
 
+function sideOptions(item) {
+  if (item.id === 'gear-outline') {
+    return '<option value="">Choose what stays</option>' +
+      '<option value="outside">Keep the gear · bit outside</option>' +
+      '<option value="inside">Make a gear-shaped opening · bit inside</option>' +
+      '<option value="on">Bit centered on drawn line</option>';
+  }
+  if (item.id === 'center-circle') {
+    return '<option value="">Choose what stays</option>' +
+      '<option value="inside">Make the center hole · bit inside</option>' +
+      '<option value="outside">Keep a round plug · bit outside</option>' +
+      '<option value="on">Bit centered on drawn line</option>';
+  }
+  return '<option value="">Choose what stays</option>' +
+    '<option value="outside">Keep shape inside line · bit outside</option>' +
+    '<option value="inside">Make opening inside line · bit inside</option>' +
+    '<option value="on">Bit centered on drawn line</option>';
+}
+
+function updateSideHelp(row, item) {
+  const messages = item.id === 'center-circle' ? {
+    inside: 'Makes a hole. The bit stays inside the green circle.',
+    outside: 'Makes a round plug. The bit stays outside the green circle.',
+    on: 'The bit straddles the green circle, changing the finished diameter.',
+  } : {
+    outside: 'Keeps the green shape. The bit removes stock outside its line.',
+    inside: 'Keeps the surrounding stock. The bit removes material inside the line.',
+    on: 'The bit straddles the green line, changing the finished size.',
+  };
+  row.querySelector('.cut-side-help').textContent = messages[item.side] ??
+    'Choose which material should remain after the cut.';
+}
+
 function renderCutList() {
   cutList.replaceChildren();
   state.profiles.forEach((item, index) => {
@@ -174,8 +209,8 @@ function renderCutList() {
     row.innerHTML = '<div class="cut-row-top"><span class="cut-row-number"></span><span class="cut-row-name"></span>' +
       '<button class="row-order-button" type="button" data-move="-1" aria-label="Move profile earlier">↑</button>' +
       '<button class="row-order-button" type="button" data-move="1" aria-label="Move profile later">↓</button></div>' +
-      '<div class="cut-row-fields"><label>Bit follows<select data-side><option value="">Choose side</option>' +
-      '<option value="inside">Inside</option><option value="on">On line</option><option value="outside">Outside</option></select></label></div>' +
+      '<div class="cut-row-fields"><label>Cut result<select data-side>' + sideOptions(item) + '</select></label>' +
+      '<p class="cut-side-help"></p></div>' +
       '<div class="tabs-fields"><label>Tabs<input data-tab="count" type="number" min="0" max="24" step="1" inputmode="numeric" placeholder="Count"></label>' +
       '<label>Width <span class="unit">mm</span><input data-tab="widthMm" type="number" min="0.01" step="any" inputmode="decimal" placeholder="mm"></label>' +
       '<label>Height <span class="unit">mm</span><input data-tab="heightMm" type="number" min="0.01" step="any" inputmode="decimal" placeholder="mm"></label></div>';
@@ -184,6 +219,7 @@ function renderCutList() {
     row.querySelector('[data-move="-1"]').disabled = index === 0;
     row.querySelector('[data-move="1"]').disabled = index === state.profiles.length - 1;
     row.querySelector('[data-side]').value = item.side;
+    updateSideHelp(row, item);
     row.querySelector('.tabs-fields').hidden = item.side !== 'outside';
     for (const input of row.querySelectorAll('[data-tab]')) {
       input.value = item.tabs[input.dataset.tab] ?? '';
@@ -236,12 +272,22 @@ function svgElement(type, attributes) {
 }
 
 function drawPreview() {
-  const shown = state.job?.preview?.profiles;
-  const design = shown ? shown.map(item => item.designPath) : state.profiles.map(item => item.points);
+  const preview = state.job ?? state.cutPreview;
+  const shown = preview?.preview?.profiles;
+  const designProfiles = shown
+    ? shown.map(item => ({ points: item.designPath, side: item.side }))
+    : state.profiles.map(item => ({ points: item.points, side: item.side }));
+  const design = designProfiles.map(item => item.points);
   const tools = shown ? shown.map(item => item.toolCenterPath) : [];
   const b = boundsOf([...design, ...tools]);
   const svg = $('gear-preview');
-  for (const id of ['preview-toolpaths', 'preview-contours', 'preview-tabpaths', 'preview-order']) $(id).replaceChildren();
+  for (const id of ['preview-kept', 'preview-removed', 'preview-cutarea', 'preview-toolpaths',
+    'preview-contours', 'preview-tabpaths', 'preview-order']) $(id).replaceChildren();
+  $('kept-legend').hidden = !designProfiles.some(item => item.side === 'outside');
+  $('removed-legend').hidden = !designProfiles.some(item => item.side === 'inside');
+  $('cutarea-legend').hidden = !shown;
+  $('toolpath-legend').hidden = !shown;
+  $('tab-legend').hidden = true;
   if (!b) return;
   const span = Math.max(b.maxX - b.minX, b.maxY - b.minY, 10);
   const pad = Math.max(span * .09, 2);
@@ -250,7 +296,20 @@ function drawPreview() {
   svg.setAttribute('viewBox', [b.minX - pad, -b.maxY - pad, width, height].join(' '));
   const mark = Math.max(span * .018, .8);
   $('origin-mark').setAttribute('d', 'M' + (-mark) + ' 0H' + mark + ' M0 ' + (-mark) + 'V' + mark);
-  design.forEach((points, index) => {
+  const outside = designProfiles.filter(item => item.side === 'outside' && item.points?.length);
+  const openings = designProfiles.filter(item => item.side === 'inside' && item.points?.length);
+  for (const item of outside) {
+    $('preview-kept').append(svgElement('path', {
+      d: pathData(item.points), fill: 'currentColor', stroke: 'none',
+    }));
+  }
+  for (const item of openings) {
+    $('preview-removed').append(svgElement('path', {
+      d: pathData(item.points), fill: 'currentColor', stroke: 'none',
+    }));
+  }
+  designProfiles.forEach((item, index) => {
+    const points = item.points;
     if (!points?.length) return;
     $('preview-contours').append(svgElement('path', {
       d: pathData(points), fill: 'none', stroke: 'currentColor',
@@ -275,6 +334,11 @@ function drawPreview() {
   let hasTabs = false;
   shown?.forEach(item => {
     if (item.toolCenterPath?.length) {
+      $('preview-cutarea').append(svgElement('path', {
+        d: pathData(item.toolCenterPath), fill: 'none', stroke: 'currentColor',
+        'stroke-width': preview.metadata.bitDiameter,
+        'stroke-linecap': 'round', 'stroke-linejoin': 'round',
+      }));
       $('preview-toolpaths').append(svgElement('path', {
         d: pathData(item.toolCenterPath), fill: 'none', stroke: 'currentColor',
         'stroke-width': 1.45, 'stroke-dasharray': '4 3',
@@ -292,7 +356,6 @@ function drawPreview() {
       }));
     }
   });
-  $('toolpath-legend').hidden = !shown;
   $('tab-legend').hidden = !hasTabs;
 }
 
@@ -331,7 +394,7 @@ function cutProfiles() {
 
 function readSettings() {
   const fields = [
-    ['tool-diameter', 'bit diameter'], ['stock-thickness', 'stock thickness'],
+    ['stock-thickness', 'stock thickness'],
     ['pass-count', 'number of passes'], ['step-down', 'depth per pass'], ['safe-z', 'safe Z'],
     ['feed-rate', 'XY feed'], ['plunge-rate', 'plunge feed'],
     ['spindle-rpm', 'spindle speed'],
@@ -344,8 +407,9 @@ function readSettings() {
   if (skin === null) throw new Error('Enter a valid bottom skin thickness.');
   const thickness = number('stock-thickness');
   if (skin >= thickness) throw new Error('Bottom skin must be thinner than the stock.');
+  const bit = readBitDiameter();
   return {
-    bitDiameter: number('tool-diameter'),
+    bitDiameter: bit.mm,
     materialThickness: thickness,
     stepdown: number('step-down'),
     ...(state.depthMode === 'passes' ? { passCount: number('pass-count') } : {}),
@@ -360,7 +424,34 @@ function readSettings() {
   };
 }
 
+function readBitDiameter() {
+  return normalizeBitDiameter($('tool-diameter').value.trim(), $('tool-unit').value);
+}
+
+function decimal(value, places) {
+  return String(Number(value.toFixed(places)));
+}
+
+function updateToolDiameter() {
+  const input = $('tool-diameter');
+  const unit = $('tool-unit').value;
+  input.min = unit === 'in' ? String(MIN_PROFILE_BIT_MM / MM_PER_INCH) : String(MIN_PROFILE_BIT_MM);
+  input.max = unit === 'in' ? String(100 / MM_PER_INCH) : '100';
+  input.placeholder = unit === 'in' ? 'e.g. 0.125' : 'e.g. 3';
+  if (!input.value.trim() || !unit) {
+    status($('tool-diameter-summary'), 'Enter the number printed on the bit, then choose its units.');
+    return;
+  }
+  try {
+    const bit = normalizeBitDiameter(input.value.trim(), unit);
+    status($('tool-diameter-summary'), `Cutter compensation: ${decimal(bit.mm, 4)} mm (${decimal(bit.inches, 5)} in). The G-code will use this metric diameter.`, 'success');
+  } catch (error) {
+    status($('tool-diameter-summary'), error.message, 'error');
+  }
+}
+
 function updateSafety() {
+  updateToolDiameter();
   const stock = number('stock-thickness');
   const skinRaw = $('skin-thickness').value.trim();
   const skin = skinRaw ? number('skin-thickness') : 0;
@@ -386,25 +477,46 @@ function refresh() {
   updateSafety();
   $('download-dxf').disabled = !state.profiles.length;
   state.job = null;
+  state.cutPreview = null;
   if (!state.profiles.length) {
     status($('validation-messages'), 'Load a drawing or enter valid gear pair values.', 'error');
     drawPreview();
     $('download-gcode').disabled = true;
     return;
   }
+  let profiles;
   try {
-    const profiles = cutProfiles();
+    profiles = cutProfiles();
     const settings = readSettings();
     state.job = generateJob({ profiles, settings });
     const passes = state.job.metadata?.passDepths?.length;
     const prefix = passes ? passes + ' depth pass' + (passes === 1 ? '' : 'es') : 'Toolpath';
-    const ack = $('confirm-origin').checked ? '' : ' · confirm work origin to download';
+    const confirmations = [];
+    if (!$('confirm-tool-size').checked) confirmations.push('installed bit size');
+    if (!$('confirm-origin').checked) confirmations.push('work origin');
+    if (!$('confirm-cut-side').checked) confirmations.push('orange band is on the waste side');
+    const ack = confirmations.length ? ' · confirm ' + confirmations.join(' and ') + ' to download' : '';
     status($('validation-messages'), prefix + ' · ' + profiles.length + ' profile' +
       (profiles.length === 1 ? '' : 's') + ' in order' + ack, 'success');
   } catch (error) {
     status($('validation-messages'), error.message, 'error');
   }
-  $('download-gcode').disabled = !state.job || !$('confirm-origin').checked;
+  if (!state.job) {
+    try {
+      profiles ??= cutProfiles();
+      const bit = readBitDiameter();
+      state.cutPreview = generateToolpathPreview({
+        profiles,
+        bitDiameter: bit.mm,
+        origin: $('work-origin').value,
+      });
+    } catch {
+      // The filled part still updates immediately. The cutter path appears once
+      // every profile has a side and a valid bit diameter with explicit units.
+    }
+  }
+  $('download-gcode').disabled = !state.job || !$('confirm-tool-size').checked || !$('confirm-origin').checked ||
+    !$('confirm-cut-side').checked;
   drawPreview();
 }
 
@@ -452,6 +564,7 @@ function applyGearInput() {
 
 function selectPart(part) {
   state.part = part;
+  $('confirm-cut-side').checked = false;
   for (const choice of ['pinion', 'gear']) {
     const button = $('select-' + choice);
     button.classList.toggle('is-active', choice === part);
@@ -468,6 +581,7 @@ function setGearMode() {
   $('dxf-units-prompt').hidden = true;
   $('work-origin').value = 'center';
   $('confirm-origin').checked = false;
+  $('confirm-cut-side').checked = false;
   showMode();
   status($('source-status'), 'Using the gear pair values below.');
   applyGearInput();
@@ -492,6 +606,7 @@ function fileStem() {
 
 gearForm.addEventListener('input', event => {
   if (event.target.id === 'lock-tooth-size') return;
+  $('confirm-cut-side').checked = false;
   syncLinkedCenter(event.target.id);
   updateGearRelations();
   clearGearWhileEditing();
@@ -508,13 +623,30 @@ $('lock-tooth-size').addEventListener('change', () => {
 gearForm.addEventListener('submit', event => event.preventDefault());
 cutForm.addEventListener('submit', event => event.preventDefault());
 $('bore-diameter').addEventListener('input', () => {
+  $('confirm-cut-side').checked = false;
   clearGearWhileEditing();
   clearTimeout(updateTimer);
   updateTimer = setTimeout(applyGearInput, 100);
 });
-cutForm.addEventListener('input', event => { syncPassControls(event.target.id); scheduleRefresh(); });
-cutForm.addEventListener('change', scheduleRefresh);
+cutForm.addEventListener('input', event => {
+  if (event.target.id === 'tool-diameter') {
+    $('confirm-tool-size').checked = false;
+    $('confirm-cut-side').checked = false;
+  }
+  syncPassControls(event.target.id);
+  scheduleRefresh();
+});
+cutForm.addEventListener('change', event => {
+  if (event.target.id === 'tool-unit') {
+    $('confirm-tool-size').checked = false;
+    $('confirm-cut-side').checked = false;
+    updateToolDiameter();
+  }
+  scheduleRefresh();
+});
+$('confirm-tool-size').addEventListener('change', refresh);
 $('confirm-origin').addEventListener('change', refresh);
+$('confirm-cut-side').addEventListener('change', refresh);
 $('confirm-center-bit').addEventListener('change', refresh);
 $('confirm-hold-down').addEventListener('change', refresh);
 $('work-origin').addEventListener('change', () => {
@@ -544,7 +676,9 @@ function updateRow(event) {
   if (!item) return;
   if (event.target.matches('[data-side]')) {
     item.side = event.target.value;
+    $('confirm-cut-side').checked = false;
     row.querySelector('.tabs-fields').hidden = item.side !== 'outside';
+    updateSideHelp(row, item);
   } else if (event.target.matches('[data-tab]')) {
     item.tabs[event.target.dataset.tab] = event.target.value;
   }
@@ -572,6 +706,7 @@ $('workbook-file').addEventListener('change', async event => {
     state.fileName = file.name;
     $('work-origin').value = 'center';
     $('confirm-origin').checked = false;
+    $('confirm-cut-side').checked = false;
     showMode();
     applyGearInput();
     const trace = result.cachedTrace?.matchesInputs === false
@@ -602,6 +737,7 @@ function loadDXF(text, fileName, unitOverride) {
       item.points, '', null, { kind: item.kind, center: item.center, radius: item.radius }));
     $('work-origin').value = 'lower-left';
     $('confirm-origin').checked = false;
+    $('confirm-cut-side').checked = false;
     showMode();
     renderCutList();
     updateImportedSummary();
@@ -648,7 +784,8 @@ $('download-dxf').addEventListener('click', () => {
 
 $('download-gcode').addEventListener('click', () => {
   refresh();
-  if (!state.job || !$('confirm-origin').checked) return;
+  if (!state.job || !$('confirm-tool-size').checked || !$('confirm-origin').checked ||
+      !$('confirm-cut-side').checked) return;
   download(state.job.gcode, fileStem() + '-GRBL.nc', 'text/plain');
 });
 

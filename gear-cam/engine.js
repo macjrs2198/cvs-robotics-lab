@@ -578,7 +578,7 @@ export function generateJob({ profiles, settings } = {}) {
   checkTravelBounds(shiftedAll, null, depth, s);
   const lines = [
     '(CVS Robotics Lab gear CAM - verify setup and simulate before cutting)',
-    `(Bit ${fmt(s.bitDiameter)} mm; stock ${fmt(s.materialThickness)} mm; passes ${passCount}; ${fmt(effectiveStepdown)} mm per pass${s.passCount ? '' : ' maximum'})`,
+    `(Bit ${fmt(s.bitDiameter)} mm = ${fmt(s.bitDiameter / 25.4)} in; stock ${fmt(s.materialThickness)} mm; passes ${passCount}; ${fmt(effectiveStepdown)} mm per pass${s.passCount ? '' : ' maximum'})`,
     `(Work zero X/Y: ${s.origin}; stock top Z0; final depth ${fmt(depth)} mm)`,
     'G21 G17 G90 G94 G54 G40',
     `G0 Z${fmt(s.safeZ)}`,
@@ -587,7 +587,12 @@ export function generateJob({ profiles, settings } = {}) {
   if (s.spindleDwell) lines.push(`G4 P${fmt(s.spindleDwell)}`);
   for (let profileIndex = 0; profileIndex < prepared.length; profileIndex++) {
     const p = prepared[profileIndex];
-    lines.push(`(PROFILE ${profileIndex + 1}: ${p.name}; ${p.side}; ${p.tabs.length} tabs)`);
+    const cutResult = p.side === 'outside'
+      ? `KEEP INSIDE SHAPE; BIT CENTER ${fmt(s.bitDiameter / 2)} MM OUTSIDE`
+      : p.side === 'inside'
+        ? `MAKE OPENING; BIT CENTER ${fmt(s.bitDiameter / 2)} MM INSIDE`
+        : 'BIT CENTER ON DRAWN LINE';
+    lines.push(`(PROFILE ${profileIndex + 1}: ${p.name}; ${p.side}; ${cutResult}; ${p.tabs.length} tabs)`);
     const eventDistances = [...p.cumulative];
     for (const tab of p.tabs) eventDistances.push(tab.startMm, tab.endMm);
     eventDistances.sort((a, b) => a - b);
@@ -630,6 +635,42 @@ export function generateJob({ profiles, settings } = {}) {
       'All profiles use a straight plunge at each pass; verify the bit can plunge in this material.',
       'Verify work zero, clearance, feeds, spindle control, tab placement, and path preview in UGS before cutting.',
     ],
+  };
+}
+
+/**
+ * Calculate the same compensated XY geometry used by generateJob without
+ * requiring feeds, depths, hold-down acknowledgements, or other machine setup.
+ * This keeps the side-selection preview responsive while still using the exact
+ * production offset and clearance checks.
+ */
+export function generateToolpathPreview({ profiles, bitDiameter, origin = 'center' } = {}) {
+  const previewProfiles = Array.isArray(profiles)
+    ? profiles.map(profile => ({ ...profile, tabs: undefined }))
+    : profiles;
+  const result = generateJob({
+    profiles: previewProfiles,
+    settings: {
+      bitDiameter,
+      materialThickness: 1,
+      passCount: 1,
+      safeZ: 1,
+      feedRate: 1,
+      plungeRate: 1,
+      spindleRPM: 1,
+      skinMm: 0.5,
+      origin,
+      centerCuttingConfirmed: true,
+    },
+  });
+  return {
+    preview: result.preview,
+    metadata: {
+      unit: 'mm',
+      bounds: result.metadata.bounds,
+      bitDiameter: result.metadata.bitDiameter,
+      origin: result.metadata.origin,
+    },
   };
 }
 
