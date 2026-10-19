@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { offsetOutside, offsetProfile, generateJob, generateToolpathPreview, exportJobDXF } from './engine.js';
 import { buildPair } from './gear.js';
 import { parseDXF } from './dxf.js';
@@ -30,6 +31,45 @@ const outer = { id: 'gear', name: 'Gear', points: square, side: 'outside' };
 function job(profiles, changes = {}) {
   return generateJob({ profiles, settings: { ...settings, ...changes } });
 }
+
+test('the actual spline board round-trips to a compatible DXF and retains cutter-clearance checks', () => {
+  const { profiles } = parseDXF(readFileSync(new URL('./fixtures/cutting-board-splines.dxf', import.meta.url), 'utf8'));
+  const roundTrip = parseDXF(exportJobDXF({ profiles, unit: 'mm' }));
+  assert.equal(roundTrip.profiles.length, 1);
+  assert.equal(roundTrip.profiles[0].sourceEntity, 'POLYLINE');
+  assert.equal(roundTrip.profiles[0].points.length, profiles[0].points.length);
+  const cuts = profiles.map(p => ({ ...p, name: 'Cutting board', side: 'outside',
+    tabs: { count: 4, widthMm: 6, heightMm: 1 } }));
+  const result = job(cuts, { bitDiameter: 0.5, origin: 'lower-left' });
+  const preview = generateToolpathPreview({ profiles: cuts, bitDiameter: 0.5, origin: 'lower-left' });
+  assert.deepEqual(result.preview.profiles[0].toolCenterPath, preview.preview.profiles[0].toolCenterPath);
+  assert.equal(result.preview.profiles[0].tabs.length, 4);
+  assert.match(result.gcode, /PROFILE 1: Cutting board; outside/);
+  // Detailed river-edge bends cannot use the existing mitered 1/8-inch offset.
+  assert.throws(() => job(cuts, { bitDiameter: 3.175 }), /narrow feature|cannot clear/);
+});
+
+test('an imported non-gear slot and hole use the same compensation, tabs, passes, and G-code paths', () => {
+  const drawing = parseDXF(readFileSync(new URL('./fixtures/rounded-slot-inches.dxf', import.meta.url), 'utf8'));
+  const [slot, hole] = drawing.profiles;
+  const profiles = [{ ...hole, name: 'Hole', side: 'inside' },
+    { ...slot, name: 'Slot outline', side: 'outside', tabs: { count: 4, widthMm: 6, heightMm: 1 } }];
+  const result = job(profiles, { origin: 'lower-left' });
+  const preview = generateToolpathPreview({ profiles, bitDiameter: settings.bitDiameter, origin: 'lower-left' });
+  assert.deepEqual(result.preview.sequence, ['Hole', 'Slot outline']);
+  assert.deepEqual(result.metadata.passDepths, [-2, -4, -5.5]);
+  assert.equal(result.preview.profiles[1].tabs.length, 4);
+  for (let i = 0; i < profiles.length; i++) {
+    assert.deepEqual(result.preview.profiles[i].toolCenterPath, preview.preview.profiles[i].toolCenterPath);
+  }
+  assert.match(result.gcode, /PROFILE 1: Hole; inside/);
+  assert.match(result.gcode, /PROFILE 2: Slot outline; outside/);
+  assert.equal(result.metadata.bounds.minX, 0);
+  assert.equal(result.metadata.bounds.minY, 0);
+  assert.ok(Math.abs(result.metadata.bounds.maxX - 104.775) < 0.02);
+  assert.ok(Math.abs(result.metadata.bounds.maxY - 53.975) < 0.02);
+  assert.equal(parseDXF(exportJobDXF({ profiles })).profiles.length, 2);
+});
 
 test('outside/inside/on profiles have explicit cutter-side paths', () => {
   assert.deepEqual(offsetOutside(square, 1), [
@@ -189,6 +229,44 @@ test('cutter disk cannot gouge a neighboring disjoint profile', () => {
   assert.throws(() => generateJob({ profiles, settings: { ...settings, bitDiameter: 3 } }),
     /would reach profile 2|would reach profile 1/);
   assert.equal(generateJob({ profiles, settings: { ...settings, bitDiameter: 1 } }).preview.profiles.length, 2);
+});
+
+test('neighboring waste kerfs can overlap when the gap fits one full bit diameter', () => {
+  const left = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }];
+  const profiles = gap => [{ name: 'Left part', points: left, side: 'outside' },
+    { name: 'Right part', points: left.map(p => ({ x: p.x + 10 + gap, y: p.y })), side: 'outside' }];
+  for (const gap of [3, 3.01, 4]) {
+    const result = job(profiles(gap), { bitDiameter: 3 });
+    assert.equal(result.preview.profiles.length, 2);
+    const rightmostLeftPath = Math.max(...result.preview.profiles[0].toolCenterPath.map(p => p.x));
+    const leftmostRightPath = Math.min(...result.preview.profiles[1].toolCenterPath.map(p => p.x));
+    assert.ok(leftmostRightPath - rightmostLeftPath < 3, 'kerfs overlap in the waste gap');
+    const preview = generateToolpathPreview({ profiles: profiles(gap), bitDiameter: 3 });
+    assert.deepEqual(preview.preview.profiles.map(p => p.toolCenterPath), result.preview.profiles.map(p => p.toolCenterPath));
+  }
+  assert.throws(() => job(profiles(2.99), { bitDiameter: 3 }), /would reach profile/);
+});
+
+test('one-bit-wide outside notch allows a retraced waste pass and rejects an undersized gap', () => {
+  const notch = gap => [{ x: 0, y: 0 }, { x: 12, y: 0 }, { x: 12, y: 12 },
+    { x: 9, y: 12 }, { x: 9, y: 3 }, { x: 9 - gap, y: 3 },
+    { x: 9 - gap, y: 12 }, { x: 0, y: 12 }];
+  const cuts = [{ name: 'Notched part', points: notch(3), side: 'outside' }];
+  const result = job(cuts, { bitDiameter: 3 });
+  const path = result.preview.profiles[0].toolCenterPath;
+  const centerline = path.filter(p => Math.abs(p.x - 7.5) < 1e-8);
+  assert.ok(centerline.length >= 3, 'tool enters and returns along the same channel centerline');
+  assert.doesNotMatch(result.gcode, /NaN|Infinity/);
+  assert.deepEqual(path, generateToolpathPreview({ profiles: cuts, bitDiameter: 3 }).preview.profiles[0].toolCenterPath);
+  assert.throws(() => job([{ ...cuts[0], points: notch(2.99) }], { bitDiameter: 3 }), /cannot clear|retained material/);
+});
+
+test('a one-bit-wide inside slot can be cut as an out-and-back centerline', () => {
+  const slot = width => [{ x: 0, y: 0 }, { x: 12, y: 0 }, { x: 12, y: width }, { x: 0, y: width }];
+  const result = job([{ name: 'Slot', points: slot(3), side: 'inside' }], { bitDiameter: 3 });
+  assert.deepEqual(result.preview.profiles[0].toolCenterPath, [{ x: 1.5, y: 1.5 }, { x: 10.5, y: 1.5 }]);
+  assert.match(result.gcode, /G1 X10.5 Y1.5 F750\nG1 X1.5 Y1.5 F750/);
+  assert.throws(() => job([{ name: 'Too narrow', points: slot(2.99), side: 'inside' }], { bitDiameter: 3 }), /cannot clear|retained material/);
 });
 
 test('combined DXF exports original closed contours in mm or inches and roundtrips', () => {

@@ -7,11 +7,13 @@ const MM_PER_INCH = 25.4;
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const $ = id => document.getElementById(id);
 const state = { mode: 'gear', part: 'pinion', pair: null, profiles: [], job: null, cutPreview: null,
-  fileName: '', depthMode: 'passes', pendingDXF: null, lockedDiametralPitch: null };
+  fileName: '', depthMode: 'passes', pendingDXF: null, lockedDiametralPitch: null,
+  savedSources: {}, loadedDXF: null, readingSource: false };
 const gearForm = $('gear-form');
 const cutForm = $('cut-form');
 const cutList = $('cut-list');
 let updateTimer;
+let sourceReadId = 0;
 
 function status(element, message, kind = '') {
   element.textContent = message;
@@ -230,13 +232,20 @@ function renderCutList() {
 
 function showMode() {
   const imported = state.mode === 'dxf';
+  for (const mode of ['gear', 'dxf']) {
+    $('mode-' + mode).classList.toggle('is-active', state.mode === mode);
+    $('mode-' + mode).setAttribute('aria-pressed', String(state.mode === mode));
+  }
+  $('workbook-import').hidden = imported;
+  $('dxf-import').hidden = !imported;
+  $('drawing-heading').textContent = imported ? 'Drawing preview' : 'Choose a part';
   gearForm.hidden = imported;
   $('part-switch').hidden = imported;
   $('bore-field').hidden = imported;
   $('bore-hint').hidden = imported;
   $('drawing-summary').hidden = imported;
   $('imported-summary').hidden = !imported;
-  $('use-gear-pair').hidden = !imported;
+  $('dxf-units-prompt').hidden = !imported || !state.pendingDXF;
   $('origin-instructions').textContent = originInstructions();
 }
 
@@ -573,18 +582,42 @@ function selectPart(part) {
   applyGearInput();
 }
 
-function setGearMode() {
-  state.mode = 'gear';
-  state.profiles = [];
-  state.fileName = '';
+function setSourceMode(mode) {
+  if (state.mode === mode) return;
+  clearTimeout(updateTimer);
+  sourceReadId++;
+  state.savedSources[state.mode] = {
+    profiles: state.profiles, fileName: state.fileName,
+    origin: $('work-origin').value, pendingDXF: state.pendingDXF,
+    message: state.readingSource ? 'File reading was interrupted. Choose the file again.' : $('source-status').textContent,
+    kind: state.readingSource || $('source-status').classList.contains('is-error') ? 'error' : '',
+  };
+  state.readingSource = false;
+  const saved = state.savedSources[mode];
+  state.mode = mode;
+  state.profiles = saved?.profiles ?? [];
+  state.fileName = saved?.fileName ?? '';
+  state.pair = null;
+  state.job = null;
+  state.cutPreview = null;
   state.pendingDXF = null;
-  $('dxf-units-prompt').hidden = true;
-  $('work-origin').value = 'center';
+  if (mode === 'dxf') state.pendingDXF = saved?.pendingDXF ?? null;
+  $('work-origin').value = saved?.origin ?? (mode === 'gear' ? 'center' : 'lower-left');
   $('confirm-origin').checked = false;
   $('confirm-cut-side').checked = false;
   showMode();
-  status($('source-status'), 'Using the gear pair values below.');
-  applyGearInput();
+  if (mode === 'gear') {
+    status($('source-status'), saved?.message ?? 'Using the gear pair values below.', saved?.kind);
+    applyGearInput();
+  } else {
+    renderCutList();
+    updateImportedSummary();
+    refresh();
+    status($('source-status'), saved?.message ?? 'Open a DXF drawing of the part you want to cut.', saved?.kind);
+    status($('drawing-status'), state.profiles.length
+      ? 'Check the cut side and order for every imported profile.' : 'Open a DXF to preview its outlines.');
+    if (!state.profiles.length) $('drawing-label').textContent = 'OPEN A DXF DRAWING';
+  }
 }
 
 function download(text, name, mime) {
@@ -655,7 +688,8 @@ $('work-origin').addEventListener('change', () => {
 });
 $('select-pinion').addEventListener('click', () => selectPart('pinion'));
 $('select-gear').addEventListener('click', () => selectPart('gear'));
-$('use-gear-pair').addEventListener('click', setGearMode);
+$('mode-gear').addEventListener('click', () => setSourceMode('gear'));
+$('mode-dxf').addEventListener('click', () => setSourceMode('dxf'));
 
 cutList.addEventListener('click', event => {
   const button = event.target.closest('[data-move]');
@@ -690,10 +724,15 @@ cutList.addEventListener('change', updateRow);
 $('workbook-file').addEventListener('change', async event => {
   const file = event.target.files?.[0];
   if (!file) return;
+  setSourceMode('gear');
+  const readId = ++sourceReadId;
+  state.readingSource = true;
+  clearTimeout(updateTimer);
   invalidateSource();
   status($('source-status'), 'Reading ' + file.name + '…');
   try {
     const result = await parseWorkbook(file);
+    if (readId !== sourceReadId) return;
     for (const [key, id] of Object.entries({
       pinionTeeth: 'pinion-teeth', gearTeeth: 'gear-teeth',
       pressureAngleDeg: 'pressure-angle', centerDistance: 'center-distance',
@@ -716,15 +755,23 @@ $('workbook-file').addEventListener('change', async event => {
     status($('source-status'), 'Loaded six gear inputs from ' + file.name + '.' + trace +
       (state.pair ? '' : ' Fix the gear shape before exporting.'), state.pair ? 'success' : 'error');
   } catch (error) {
-    status($('source-status'), error.message, 'error');
+    if (readId === sourceReadId) status($('source-status'), error.message, 'error');
+  } finally {
+    if (readId === sourceReadId) state.readingSource = false;
+    event.target.value = '';
   }
-  event.target.value = '';
 });
 
 function loadDXF(text, fileName, unitOverride) {
+  setSourceMode('dxf');
+  clearTimeout(updateTimer);
+  state.loadedDXF = { text, fileName, unitOverride };
+  $('dxf-import-notes').textContent = '';
   invalidateSource();
   try {
-    const result = parseDXF(text, unitOverride ? { unitOverride } : {});
+    const result = parseDXF(text, {
+      unitOverride, ignoreAnnotations: $('dxf-ignore-annotations').checked,
+    });
     if (!result.profiles.length) throw new Error('No closed 2D profiles found in this DXF.');
     if (result.profiles.length > 32) throw new Error('This DXF has more than 32 closed profiles; split it into smaller jobs.');
     state.mode = 'dxf';
@@ -741,6 +788,9 @@ function loadDXF(text, fileName, unitOverride) {
     showMode();
     renderCutList();
     updateImportedSummary();
+    $('dxf-import-notes').textContent = result.ignoredEntities.length
+      ? 'Skipped ' + result.ignoredEntities.map(item => item.count + ' ' + item.type).join(', ') +
+        '. These annotations will not be cut.' : '';
     refresh();
     status($('drawing-status'), 'Choose the bit side for every imported profile.');
     status($('source-status'), 'Loaded ' + state.profiles.length + ' closed profile' +
@@ -761,10 +811,31 @@ function loadDXF(text, fileName, unitOverride) {
 $('dxf-file').addEventListener('change', async event => {
   const file = event.target.files?.[0];
   if (!file) return;
+  setSourceMode('dxf');
+  const readId = ++sourceReadId;
+  state.readingSource = true;
+  state.loadedDXF = null;
+  state.pendingDXF = null;
+  $('dxf-units-prompt').hidden = true;
+  $('dxf-import-notes').textContent = '';
+  clearTimeout(updateTimer);
   invalidateSource();
   status($('source-status'), 'Reading ' + file.name + '…');
-  loadDXF(await file.text(), file.name);
-  event.target.value = '';
+  try {
+    const text = await file.text();
+    if (readId === sourceReadId) loadDXF(text, file.name);
+  } catch (error) {
+    if (readId === sourceReadId) status($('source-status'), 'Could not read ' + file.name + ': ' + error.message, 'error');
+  } finally {
+    if (readId === sourceReadId) state.readingSource = false;
+    event.target.value = '';
+  }
+});
+
+$('dxf-ignore-annotations').addEventListener('change', () => {
+  if (state.mode !== 'dxf' || !state.loadedDXF) return;
+  const { text, fileName, unitOverride } = state.loadedDXF;
+  loadDXF(text, fileName, unitOverride);
 });
 
 $('retry-dxf').addEventListener('click', () => {

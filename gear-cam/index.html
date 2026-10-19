@@ -22,8 +22,8 @@
 
       <main class="workspace">
         <div class="page-intro">
-          <p>Enter a gear pair, load your spreadsheet, or open a DXF drawing. Check the contours, then download a drawing or GRBL file for Universal G-code Sender.</p>
-          <p class="workflow-steps" aria-label="Workflow"><span>01 · Gear pair</span><span>02 · Drawing</span><span>03 · Cut setup</span></p>
+          <p>Generate a gear or open your own DXF part. Use the same simple controls for bit size, inside or outside cuts, tabs, and depth passes.</p>
+          <p class="workflow-steps" aria-label="Workflow"><span>01 · Source</span><span>02 · Drawing</span><span>03 · Cut setup</span></p>
         </div>
 
         <div class="workspace-grid">
@@ -31,10 +31,18 @@
             <section class="panel" aria-labelledby="gear-heading">
               <div class="panel-heading"><span class="step-number">01</span><div><p class="eyebrow">SPREADSHEET · DXF · MANUAL INPUT</p><h2 id="gear-heading">Drawing source</h2></div></div>
 
-              <div class="source-imports"><label class="file-drop" for="workbook-file"><span class="file-icon" aria-hidden="true">↥</span><span><strong>Load gear spreadsheet</strong><small>.xlsm or .xlsx · fills the pair settings</small></span><input id="workbook-file" type="file" accept=".xlsm,.xlsx,application/vnd.ms-excel.sheet.macroEnabled.12,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"></label><label class="file-drop" for="dxf-file"><span class="file-icon" aria-hidden="true">↥</span><span><strong>Open a DXF drawing</strong><small>Closed 2D profiles · cut each contour in order</small></span><input id="dxf-file" type="file" accept=".dxf,application/dxf,image/vnd.dxf"></label></div>
+              <div class="source-mode-switch" role="group" aria-label="Drawing mode"><button id="mode-gear" type="button" class="source-mode is-active" aria-pressed="true">Gear generator</button><button id="mode-dxf" type="button" class="source-mode" aria-pressed="false">DXF drawing</button></div>
+              <div class="source-imports">
+                <label id="workbook-import" class="file-drop" for="workbook-file"><span class="file-icon" aria-hidden="true">↥</span><span><strong>Load gear spreadsheet</strong><small>.xlsm or .xlsx · fills the pair settings</small></span><input id="workbook-file" type="file" accept=".xlsm,.xlsx,application/vnd.ms-excel.sheet.macroEnabled.12,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"></label>
+                <div id="dxf-import" hidden>
+                  <label class="file-drop" for="dxf-file"><span class="file-icon" aria-hidden="true">↥</span><span><strong>Open your DXF part</strong><small>Any shape with closed 2D outlines</small></span><input id="dxf-file" type="file" accept=".dxf,application/dxf,image/vnd.dxf"></label>
+                  <p class="field-note">Lines, arcs, circles, splines, and 2D polylines. Connected pieces on the same layer join into closed contours. Explode blocks and convert unsupported curves to polylines in CAD first.</p>
+                  <label class="linked-control"><input id="dxf-ignore-annotations" type="checkbox"> Skip text and dimensions</label>
+                  <p id="dxf-import-notes" class="field-note" role="status" aria-live="polite"></p>
+                </div>
+              </div>
               <p id="source-status" class="field-note" role="status" aria-live="polite">Or enter the gear pair values yourself.</p>
               <div id="dxf-units-prompt" class="units-prompt" hidden><label>DXF drawing units<select id="dxf-unit-override"><option value="mm">Millimeters</option><option value="in">Inches</option></select></label><button id="retry-dxf" type="button" class="text-button">Load using these units</button></div>
-              <button id="use-gear-pair" type="button" class="text-button" hidden>Use gear pair instead</button>
 
               <form id="gear-form" novalidate>
                 <h3>Gear pair settings</h3>
@@ -60,7 +68,7 @@
             <section class="panel cut-panel" aria-labelledby="cut-heading">
               <div class="panel-heading"><span class="step-number">03</span><div><p class="eyebrow">CNC ROUTER · GRBL</p><h2 id="cut-heading">Cut setup</h2></div></div>
               <p class="section-copy">Set the cut order and use values approved for your bit, material, and machine. The G-code button unlocks when the setup is complete.</p>
-              <div class="cut-list-heading"><h3>Cut order</h3><p>Top profile cuts first. For each line, choose the piece or opening you want to keep. The preview shows the full width reached by the bit.</p></div>
+              <div class="cut-list-heading"><h3>Cut order</h3><p>Top profile cuts first. For each line, choose the piece or opening you want to keep. The preview shows the full width reached by the bit. Passes may overlap in waste when the full bit clears the finished edges; one bit diameter of gap is enough.</p></div>
               <ol id="cut-list" class="cut-list"></ol>
               <form id="cut-form" novalidate>
                 <h3>Router settings</h3>

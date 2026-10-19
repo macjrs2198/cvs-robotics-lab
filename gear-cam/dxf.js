@@ -1,4 +1,6 @@
 /** Import closed 2D DXF profiles as millimeter point arrays for CAM. */
+import { flattenSpline } from './spline.js';
+
 const MM_PER_INCH = 25.4;
 const MAX_PROFILES = 100;
 const MAX_POINTS = 6000;
@@ -7,6 +9,7 @@ const MAX_POINTS = 6000;
 const MAX_ENTITIES = 200000;
 const TOLERANCE_MM = 0.02;
 const JOIN_TOLERANCE_MM = 0.0001;
+const ANNOTATIONS = new Set(['TEXT', 'MTEXT', 'DIMENSION', 'LEADER', 'MULTILEADER']);
 
 function number(value, description) {
   if (value == null || String(value).trim() === '' || !Number.isFinite(Number(value))) {
@@ -65,17 +68,17 @@ function close(points, description) {
 
 function samplePolyline(vertices, layer, flags, type, id) {
   const coincident = vertices.length >= 2 && pointDistance(vertices[0], vertices.at(-1)) < 1e-6;
-  if (!(flags & 1) && !coincident) throw new Error(`DXF ${type} on layer "${layer}" is open; close it before cutting.`);
+  const closed = Boolean(flags & 1) || coincident;
   if (coincident) vertices.pop();
-  if (vertices.length < 3) throw new Error(`DXF ${type} needs at least three distinct vertices.`);
+  if (vertices.length < 2) throw new Error(`DXF ${type} needs at least two distinct vertices.`);
   let points = [{ x: vertices[0].x, y: vertices[0].y }];
-  for (let i = 0; i < vertices.length; i++) {
+  for (let i = 0; i < vertices.length - (closed ? 0 : 1); i++) {
     const v = vertices[i], next = vertices[(i + 1) % vertices.length];
     points.push(...arcPoints(v, next, v.bulge));
     if (points.length > MAX_POINTS + 1) throw new Error('DXF profile exceeds the vertex limit.');
   }
-  points = close(points, type);
-  return { id, layer, kind: 'polyline', sourceEntity: type, closed: true, points };
+  if (closed) points = close(points, type);
+  return { id, layer, kind: 'polyline', sourceEntity: type, closed, points };
 }
 
 function polyline(groups, scale, id) {
@@ -105,7 +108,7 @@ function legacyPolyline(header, vertexEntities, scale, id) {
   planar(header.groups, 'POLYLINE');
   const layer = first(header.groups, 8, '0');
   const flags = number(first(header.groups, 70, '0'), 'POLYLINE flags');
-  if (flags & ~1) {
+  if (flags & ~129) {
     throw new Error('DXF POLYLINE is a mesh, 3D, or curve-fit entity; only closed 2D profiles are supported.');
   }
   const vertices = vertexEntities.map(entity => {
@@ -156,17 +159,62 @@ function line(groups, scale, order) {
   const end = { x: number(first(groups, 11), 'LINE end X') * scale,
     y: number(first(groups, 21), 'LINE end Y') * scale };
   if (pointDistance(start, end) < 1e-5) throw new Error('DXF LINE is too short to cut.');
-  return { start, end, layer: first(groups, 8, '0'), order };
+  return { points: [start, end], layer: first(groups, 8, '0'), sourceEntity: 'LINE', order };
 }
 
-function stitchLines(lines) {
+function arc(groups, scale, order) {
+  planar(groups, 'ARC');
+  const center = { x: number(first(groups, 10), 'ARC center X') * scale,
+    y: number(first(groups, 20), 'ARC center Y') * scale };
+  const radius = number(first(groups, 40), 'ARC radius') * scale;
+  if (radius <= 0) throw new Error('DXF ARC radius must be positive.');
+  const start = number(first(groups, 50), 'ARC start angle') * Math.PI / 180;
+  const end = number(first(groups, 51), 'ARC end angle') * Math.PI / 180;
+  const sweep = ((end - start) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI);
+  if (sweep < 1e-12) throw new Error('DXF ARC has equal start and end angles; use CIRCLE for a full circle.');
+  const maxStep = 2 * Math.acos(Math.max(-1, Math.min(1, 1 - TOLERANCE_MM / radius)));
+  const count = Math.max(2, Math.ceil(sweep / maxStep));
+  if (count > MAX_POINTS) throw new Error('DXF arc needs too many vertices; simplify the drawing.');
+  const points = Array.from({ length: count + 1 }, (_, i) => {
+    const angle = start + sweep * i / count;
+    return { x: center.x + radius * Math.cos(angle), y: center.y + radius * Math.sin(angle) };
+  });
+  return { points, layer: first(groups, 8, '0'), sourceEntity: 'ARC', order };
+}
+
+function spline(groups, scale) {
+  planar(groups, 'SPLINE');
+  const values = code => groups.filter(g => g.code === code).map(g => number(g.value, `SPLINE group ${code}`));
+  for (const code of [30, 31, 32, 33]) {
+    if (values(code).some(z => Math.abs(z) > 1e-9)) throw new Error('DXF SPLINE is not flat in the XY plane.');
+  }
+  const flags = number(first(groups, 70, '0'), 'SPLINE flags');
+  if (!Number.isInteger(flags) || flags < 0 || flags > 31) throw new Error('DXF SPLINE flags are invalid.');
+  if (flags & 2) throw new Error('DXF SPLINE is periodic; export it as a closed 2D polyline.');
+  const xs = values(10), ys = values(20), zs = values(30), knots = values(40), weights = values(41);
+  if (xs.length !== number(first(groups, 73), 'SPLINE control count') || ys.length !== xs.length ||
+      (zs.length && zs.length !== xs.length) || knots.length !== number(first(groups, 72), 'SPLINE knot count')) {
+    throw new Error('DXF SPLINE has incomplete or mismatched control points or knots.');
+  }
+  const points = flattenSpline({ degree: number(first(groups, 71), 'SPLINE degree'), knots, weights,
+    controlPoints: xs.map((x, i) => ({ x: x * scale, y: ys[i] * scale })), tolerance: TOLERANCE_MM, maxPoints: MAX_POINTS });
+  const closed = pointDistance(points[0], points.at(-1)) <= JOIN_TOLERANCE_MM;
+  if (flags & 1 && !closed) throw new Error('DXF SPLINE is marked closed but its endpoints do not meet; re-export a closed contour.');
+  if (closed) { points[points.length - 1] = { ...points[0] }; close(points, 'SPLINE'); }
+  return { layer: first(groups, 8, '0'), kind: 'polyline', sourceEntity: 'SPLINE', closed, points };
+}
+
+// Join entire sampled segments, including reversed curves. Never replace an arc
+// with its chord or bridge a gap beyond the endpoint matching tolerance.
+function stitchSegments(segmentsToJoin) {
   const byLayer = new Map();
-  for (const segment of lines) {
+  for (const segment of segmentsToJoin) {
     if (!byLayer.has(segment.layer)) byLayer.set(segment.layer, []);
     byLayer.get(segment.layer).push(segment);
   }
   const loops = [];
   for (const [layer, segments] of byLayer) {
+    const description = [...new Set(segments.map(s => s.sourceEntity))].join('/');
     const nodes = [], buckets = new Map(), edges = [];
     function nodeFor(point) {
       const x = Math.round(point.x / JOIN_TOLERANCE_MM);
@@ -184,15 +232,15 @@ function stitchLines(lines) {
       return id;
     }
     for (const segment of segments) {
-      const a = nodeFor(segment.start), b = nodeFor(segment.end);
-      if (a === b) throw new Error(`DXF LINE on layer "${layer}" collapses at its endpoints.`);
+      const a = nodeFor(segment.points[0]), b = nodeFor(segment.points.at(-1));
+      if (a === b) throw new Error(`DXF ${description} on layer "${layer}" collapses at its endpoints.`);
       const id = edges.length;
-      edges.push({ a, b, order: segment.order });
+      edges.push({ a, b, order: segment.order, points: segment.points, sourceEntity: segment.sourceEntity });
       nodes[a].edges.push(id); nodes[b].edges.push(id);
     }
     for (const node of nodes) {
       if (node.edges.length !== 2) {
-        throw new Error(`DXF LINE path on layer "${layer}" is ${node.edges.length < 2 ? 'open' : 'branched'} near ` +
+        throw new Error(`DXF ${description} path on layer "${layer}" is ${node.edges.length < 2 ? 'open' : 'branched'} near ` +
           `(${node.point.x.toFixed(3)}, ${node.point.y.toFixed(3)}) mm. Make separate closed contours.`);
       }
     }
@@ -202,22 +250,26 @@ function stitchLines(lines) {
       const startNode = edges[initial].a;
       let current = startNode, edgeId = initial;
       const points = [{ ...nodes[startNode].point }];
+      const types = new Set();
       let firstOrder = Infinity;
       do {
-        if (visited.has(edgeId)) throw new Error(`DXF LINE path on layer "${layer}" is ambiguous.`);
+        if (visited.has(edgeId)) throw new Error(`DXF ${description} path on layer "${layer}" is ambiguous.`);
         visited.add(edgeId);
         const edge = edges[edgeId];
         firstOrder = Math.min(firstOrder, edge.order);
-        current = edge.a === current ? edge.b : edge.a;
+        types.add(edge.sourceEntity);
+        const forward = edge.a === current;
+        const sampled = forward ? edge.points : [...edge.points].reverse();
+        for (const point of sampled.slice(1, -1)) points.push({ ...point });
+        current = forward ? edge.b : edge.a;
         points.push({ ...nodes[current].point });
-        if (points.length > MAX_POINTS + 1) throw new Error('DXF LINE loop exceeds the vertex limit.');
+        if (points.length > MAX_POINTS + 1) throw new Error('DXF joined contour exceeds the vertex limit.');
         if (current === startNode) break;
         edgeId = nodes[current].edges.find((id) => !visited.has(id));
-        if (edgeId == null) throw new Error(`DXF LINE path on layer "${layer}" is open.`);
+        if (edgeId == null) throw new Error(`DXF ${description} path on layer "${layer}" is open.`);
       } while (true);
-      if (points.length < 4) throw new Error(`DXF LINE loop on layer "${layer}" has fewer than three edges.`);
-      loops.push({ order: firstOrder, layer, kind: 'polyline', sourceEntity: 'LINE',
-        closed: true, points });
+      loops.push({ order: firstOrder, layer, kind: 'polyline', sourceEntity: [...types].join('/'),
+        closed: true, points: close(points, 'joined contour') });
     }
   }
   return loops;
@@ -237,11 +289,11 @@ function groupsFromText(text) {
 }
 
 /**
- * Read closed LWPOLYLINE, legacy 2D POLYLINE, and CIRCLE profiles, including bulge arcs.
+ * Read closed profiles and join LINE, ARC, SPLINE, and open 2D polylines on each layer.
  * `$INSUNITS` 1 (inches) and 4 (mm) are supported. For unitless files, pass
  * `{ unitOverride: 'mm' }` or `'in'` after confirming the drawing's units.
  */
-export function parseDXF(text, { unitOverride } = {}) {
+export function parseDXF(text, { unitOverride, ignoreAnnotations = false } = {}) {
   const groups = groupsFromText(text);
   let section = '', headerVariable = '', insUnits = null;
   const entities = [];
@@ -273,10 +325,21 @@ export function parseDXF(text, { unitOverride } = {}) {
   if (section === 'ENTITIES' && entity) entities.push(entity);
   if (!entities.length) throw new Error('DXF has no drawing entities to cut.');
   if (entities.length > MAX_ENTITIES) throw new Error(`DXF exceeds ${MAX_ENTITIES} drawing entities; simplify it.`);
-  const unsupported = [...new Set(entities.map((e) => e.type)
-    .filter((type) => !['LWPOLYLINE', 'POLYLINE', 'VERTEX', 'SEQEND', 'CIRCLE', 'LINE'].includes(type)))];
+  const ignoredEntities = [];
+  const cutEntities = entities.filter(entity => {
+    if (!ignoreAnnotations || !ANNOTATIONS.has(entity.type)) return true;
+    const entry = ignoredEntities.find(item => item.type === entity.type);
+    if (entry) entry.count++;
+    else ignoredEntities.push({ type: entity.type, count: 1 });
+    return false;
+  });
+  const unsupported = [...new Set(cutEntities.map((e) => e.type)
+    .filter((type) => !['LWPOLYLINE', 'POLYLINE', 'VERTEX', 'SEQEND', 'CIRCLE', 'LINE', 'ARC', 'SPLINE'].includes(type)))];
   if (unsupported.length) {
-    throw new Error(`Unsupported DXF entities: ${unsupported.join(', ')}. Convert them to closed POLYLINE, LWPOLYLINE, CIRCLE, or connected LINE profiles.`);
+    const advice = unsupported.every(type => ANNOTATIONS.has(type))
+      ? 'Enable "Skip text and dimensions" to leave these notes out of the cut.'
+      : 'In CAD, explode blocks and convert unsupported curves to 2D polylines. Supported contours use LINE, ARC, SPLINE, POLYLINE, LWPOLYLINE, or CIRCLE.';
+    throw new Error(`Unsupported DXF entities: ${unsupported.join(', ')}. ${advice}`);
   }
   if (unitOverride != null && !['mm', 'in'].includes(unitOverride)) {
     throw new Error('DXF unit override must be mm or in.');
@@ -287,29 +350,36 @@ export function parseDXF(text, { unitOverride } = {}) {
   else if (unitOverride) sourceUnits = unitOverride;
   else throw new Error(`DXF $INSUNITS is ${insUnits ?? 'missing'}; confirm the drawing units and choose mm or in.`);
   const scale = sourceUnits === 'in' ? MM_PER_INCH : 1;
-  const lines = [];
+  const segments = [];
   const indexed = [];
-  for (let index = 0; index < entities.length; index++) {
-    const entity = entities[index];
-    if (entity.type === 'LINE') lines.push(line(entity.groups, scale, index));
+  function addProfile(profile, order) {
+    if (profile.closed) indexed.push({ order, ...profile });
+    else segments.push({ ...profile, order });
+  }
+  for (let index = 0; index < cutEntities.length; index++) {
+    const entity = cutEntities[index];
+    if (entity.type === 'LINE') segments.push(line(entity.groups, scale, index));
+    else if (entity.type === 'ARC') segments.push(arc(entity.groups, scale, index));
+    else if (entity.type === 'SPLINE') addProfile(spline(entity.groups, scale), index);
     else if (entity.type === 'POLYLINE') {
       const vertexEntities = [];
       let cursor = index + 1;
-      while (entities[cursor]?.type === 'VERTEX') vertexEntities.push(entities[cursor++]);
-      if (entities[cursor]?.type !== 'SEQEND') {
+      while (cutEntities[cursor]?.type === 'VERTEX') vertexEntities.push(cutEntities[cursor++]);
+      if (cutEntities[cursor]?.type !== 'SEQEND') {
         throw new Error('DXF POLYLINE is missing SEQEND after its vertices.');
       }
-      indexed.push({ order: index, ...legacyPolyline(entity, vertexEntities, scale, '') });
+      addProfile(legacyPolyline(entity, vertexEntities, scale, ''), index);
       index = cursor;
     } else if (entity.type === 'VERTEX' || entity.type === 'SEQEND') {
       throw new Error(`DXF ${entity.type} appears without a preceding POLYLINE.`);
     }
-    else indexed.push({ order: index, ...(entity.type === 'LWPOLYLINE' ?
-      polyline(entity.groups, scale, '') : circle(entity.groups, scale, '')) });
+    else addProfile(entity.type === 'LWPOLYLINE' ?
+      polyline(entity.groups, scale, '') : circle(entity.groups, scale, ''), index);
   }
-  indexed.push(...stitchLines(lines));
+  indexed.push(...stitchSegments(segments));
   indexed.sort((a, b) => a.order - b.order);
   if (indexed.length > MAX_PROFILES) throw new Error(`DXF exceeds ${MAX_PROFILES} closed profiles; simplify it.`);
   const profiles = indexed.map(({ order, ...profile }, index) => ({ ...profile, id: `profile-${index + 1}` }));
-  return { units: 'mm', sourceUnits, profiles };
+  if (!profiles.length) throw new Error('No closed 2D profiles found in this DXF. Export the part outlines from a sketch.');
+  return { units: 'mm', sourceUnits, profiles, ignoredEntities };
 }

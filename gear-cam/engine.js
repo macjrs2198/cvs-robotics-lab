@@ -7,13 +7,14 @@ import { BLANK_DXF_2018 } from './dxf-template.js';
  * DXF can optionally be expressed in inches; G-code always uses G21 (mm).
  * There is deliberately no G41/G42: Grbl does not implement those modes.
  *
- * This module makes explicit mitered inside and outside offsets. Rather than
- * guessing how to repair folded offsets at a tight tooth root, it rejects any offset
- * that self-intersects, enters the part, or lacks cutter-radius clearance.
+ * This module makes explicit mitered inside and outside offsets. Source contours
+ * must be simple. Compensated passes may overlap or retrace in waste when every
+ * swept cutter disk remains on the chosen side and clears all finished edges.
  */
 
 const EPS = 1e-8;
 const MAX_VERTICES = 6000;
+const CLEARANCE_TOLERANCE_MM = 0.000001;
 
 function requireFinite(value, label, min, max) {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < min || value > max) {
@@ -102,7 +103,7 @@ function validateProfilesDoNotCross(profiles) {
 }
 
 function validateCrossProfileClearance(profiles, toolRadius) {
-  const tolerance = Math.max(0.002, toolRadius * 1e-5);
+  const tolerance = CLEARANCE_TOLERANCE_MM;
   const limit = sq(toolRadius - tolerance);
   const designBoxes = profiles.map(p => bounds(p.design));
   const pathBoxes = profiles.map(p => bounds(p.path));
@@ -209,11 +210,15 @@ export function offsetProfile(inputOutline, signedOffset) {
     }
     result.push({ x: here.x + displacement.x, y: here.y + displacement.y });
   }
-  try {
-    validateSimplePolygon(result, 'Compensated tool-center path');
-  } catch (error) {
-    throw new Error(`${error.message} The bit may be too wide for a tooth gap; try a smaller bit.`);
+  // An exactly one-bit-wide channel produces coincident offset vertices and
+  // a retraced centerline. Remove zero-length moves, keeping the return pass.
+  const compact = [];
+  for (const point of result) {
+    if (!compact.length || distanceSq(point, compact.at(-1)) >= sq(1e-5)) compact.push(point);
   }
+  if (compact.length > 1 && distanceSq(compact[0], compact.at(-1)) < sq(1e-5)) compact.pop();
+  result.splice(0, result.length, ...compact);
+  if (result.length < 2) throw new Error('Compensated path collapses to a point; use a smaller bit for this profile workflow.');
   if (signedOffset > 0) {
     if (signedArea(result) <= signedArea(outline)) {
       throw new Error('Outside tool-center path does not surround the profile; no cut file was generated.');
@@ -223,8 +228,6 @@ export function offsetProfile(inputOutline, signedOffset) {
         throw new Error(`Outside path misses profile vertex ${i + 1}; use a smaller bit or fix the drawing. No cut file was generated.`);
       }
     }
-  } else if (signedArea(result) <= 0 || signedArea(result) >= signedArea(outline)) {
-    throw new Error('Inside tool-center path has folded or disappeared; use a smaller bit. No cut file was generated.');
   } else {
     for (let i = 0; i < result.length; i++) {
       if (!pointInPolygon(result[i], outline)) {
@@ -232,13 +235,13 @@ export function offsetProfile(inputOutline, signedOffset) {
       }
     }
   }
-  // Every segment of the cutter-center path must remain at least one tool
-  // radius from the design outline, on the requested side. This catches
-  // folded/narrow-root paths that a self-intersection check alone can miss.
-  const tolerance = Math.max(0.002, toolRadius * 1e-5);
+  // Test the full swept cutter, not spacing between passes. Waste kerfs may
+  // overlap, and one bit diameter of channel width is enough. Folded offsets
+  // that would gouge the retained part still fail this segment-distance test.
+  const tolerance = CLEARANCE_TOLERANCE_MM;
   const limit = sq(toolRadius - tolerance);
-  for (let i = 0; i < n; i++) {
-    const a = result[i], b = result[(i + 1) % n];
+  for (let i = 0; i < result.length; i++) {
+    const a = result[i], b = result[(i + 1) % result.length];
     if (distanceSq(a, b) < sq(1e-5)) throw new Error(`Compensated path has a collapsed edge at vertex ${i + 1}.`);
     const midpoint = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
     if (pointInPolygon(midpoint, outline) !== (signedOffset < 0)) {
@@ -251,7 +254,7 @@ export function offsetProfile(inputOutline, signedOffset) {
           Math.max(a.y, b.y) + toolRadius < Math.min(c.y, d.y) ||
           Math.max(c.y, d.y) + toolRadius < Math.min(a.y, b.y)) continue;
       if (segmentDistSq(a, b, c, d) < limit) {
-        throw new Error(`Bit diameter cannot clear the outline near segment ${j + 1}; use a smaller bit or adjust the drawing. No cut file was generated.`);
+        throw new Error(`Bit diameter cannot clear the outline near segment ${j + 1}; the cutter would enter retained material. Use a smaller bit or adjust the drawing. No cut file was generated.`);
       }
     }
   }
