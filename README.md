@@ -1,6 +1,6 @@
 # CVS Robotics Lab
 
-CVS Robotics Lab is a static browser package containing three independent Blockly robotics simulators, a two-player robot battle game, practice Score & Strategy tools, and a spur gear cutter:
+CVS Robotics Lab is a static browser package containing three independent Blockly robotics simulators, a two-player robot battle game, scoring, strategy, and measurement practice tools, and a spur gear cutter:
 
 **Live student site:** https://macjrs2198.github.io/cvs-robotics-lab/
 
@@ -10,16 +10,22 @@ CVS Robotics Lab is a static browser package containing three independent Blockl
 - **Robot Rumble** — two-player keyboard robot combat with directional blocking and arena hazards
 - **[CVS Score & Strategy](./score-strategy/)** — Byte to Bite practice-round scorer, independent three-minute timer, and optional measured task-time optimizer
 - **[CVS Gear Cutter](./gear-cam/)** — build a spur gear from the spreadsheet, import closed DXF profiles, order profile cuts with bit-side and tab controls, and export DXF or GRBL router files
+- **[CVS Measure Up](./measure-up/)** — Tape Measure / Ruler, Dial Caliper, Framing Square, and Speed Square practice in Practice Bench, 60-Second Challenge, and Job Orders modes
 
 ## Run Locally
 
-Open `index.html` in a modern browser, or serve the repository with any static file server and open its root URL. No build step or backend is required. Internet access is required for Blockly in the simulators; Score & Strategy has no Blockly dependency. Google Fonts are optional because system fallbacks are provided.
+Open `index.html` in a modern browser, or serve the repository with any static file server and open its root URL. Choose an app from the launcher; to open **CVS Measure Up** directly, use `measure-up/index.html` or the relative `./measure-up/` route on a static server. No build step or backend is required. Internet access is required for Blockly in the three robotics simulators; Robot Rumble, Score & Strategy, Gear Cutter, and Measure Up have no Blockly dependency. Google Fonts are optional because system fallbacks are provided.
 
 ## Project Storage
 
 - **Save / Load / Clear** uses browser-local storage on the current device.
 - **Export / Import** uses a portable JSON student-project file. Each simulator validates the file format, version, and target app before loading it.
 - **Score & Strategy** keeps its practice round history, drafts, custom objectives, planning profiles, and timer state in browser-local storage. Its portable JSON and CSV exports are separate from simulator project files and are not cloud backups.
+- **Measure Up** keeps personal-best records in browser storage; nothing is uploaded or synchronized. Certificates are generated locally from a completed run and are retained only when downloaded or printed. Clearing site data or changing browsers/devices can remove local records.
+
+## Measure Up Instrument Assumptions
+
+The Dial Caliper activity models a conventional **0–6 in** dial caliper with **0.001 in** resolution. Measurements use the **beam + dial** reading method: read the beam first, then add the dial value. It is not modeled as a vernier or digital caliper.
 
 ## GitHub Pages Deployment
 

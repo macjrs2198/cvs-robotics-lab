@@ -116,15 +116,22 @@ h1 {
 .launch-card--digital { --accent: var(--green); }
 .launch-card--analog { --accent: var(--amber); }
 .launch-card--rumble { --accent: #ff7a32; }
-.launch-card--strategy {
-  --accent: #b9a6ff;
+.launch-card--strategy { --accent: #b9a6ff; }
+.launch-card--gear { --accent: #f5b96c; }
+.launch-card--measure { --accent: #6fc8ff; }
+.launch-card--measure,
+.launch-card--strategy,
+.launch-card--gear {
   min-height: 174px;
   grid-column: span 2;
 }
-.launch-card--gear { --accent: #f5b96c; min-height: 174px; grid-column: span 2; }
 
-.launch-card--strategy h2, .launch-card--gear h2 { margin-top: 14px; }
-.launch-card--strategy .launch-action, .launch-card--gear .launch-action { padding-top: 16px; }
+.launch-card--measure h2,
+.launch-card--strategy h2,
+.launch-card--gear h2 { margin-top: 14px; }
+.launch-card--measure .launch-action,
+.launch-card--strategy .launch-action,
+.launch-card--gear .launch-action { padding-top: 16px; }
 
 .card-index {
   color: var(--accent);
@@ -163,13 +170,18 @@ h1 {
 
 @media (max-width: 980px) {
   .launch-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .launch-card--measure,
+  .launch-card--strategy,
+  .launch-card--gear { grid-column: span 1; }
 }
 
 @media (max-width: 620px) {
   .launcher-shell { align-content: start; }
   .launch-grid { grid-template-columns: 1fr; }
   .launch-card { min-height: 180px; }
-  .launch-card--strategy, .launch-card--gear { grid-column: 1; }
+  .launch-card--measure,
+  .launch-card--strategy,
+  .launch-card--gear { grid-column: 1; }
   .launcher-footer { flex-direction: column; }
 }
 

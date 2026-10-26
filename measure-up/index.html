@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Practice tape measure, dial caliper, framing square, and speed square skills with CVS Measure Up.">
+  <title>CVS Measure Up · CVS Robotics Lab</title>
+  <link rel="icon" href="../assets/stormy.png" type="image/png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="app-header">
+      <a class="brand" href="../" aria-label="Back to CVS Robotics Lab">
+        <img src="../assets/stormy.png" alt="" aria-hidden="true">
+        <span>CVS Robotics Lab</span>
+      </a>
+      <div class="header-title">
+        <p class="eyebrow">MEASUREMENT · LAYOUT · SHOP SKILLS</p>
+        <h1>CVS Measure Up</h1>
+      </div>
+      <a class="return-link" href="../">Return to lab <span aria-hidden="true">↗</span></a>
+    </header>
+
+    <main>
+      <section class="hero" aria-labelledby="welcome-title">
+        <div>
+          <p class="eyebrow">READ IT · MARK IT · BUILD IT</p>
+          <h2 id="welcome-title">Measurement &amp; Layout Challenge</h2>
+          <p>Build confident shop skills on lumber, steel stock, brackets, pipe, and fabricated parts. Choose a tool, then practice at your pace or race the clock.</p>
+        </div>
+        <div class="assumption-card">
+          <span class="status-dot" aria-hidden="true"></span>
+          <div><strong>Dial-caliper model</strong><span>0–6 in · 0.001 in resolution · 0.100 in/rev</span></div>
+        </div>
+      </section>
+
+      <section class="tool-picker" aria-labelledby="tool-heading">
+        <div class="section-heading">
+          <div><p class="eyebrow">STEP 1</p><h2 id="tool-heading">Choose a tool</h2></div>
+          <p id="tool-summary">Read inch fractions or metric millimeters on a shop ruler.</p>
+        </div>
+        <div class="tool-grid" role="radiogroup" aria-label="Measurement tool">
+          <button class="tool-card is-selected" type="button" role="radio" aria-checked="true" data-tool="tape">
+            <span class="tool-icon tool-icon--tape" aria-hidden="true">▰</span><strong>Tape / Ruler</strong><span>Fractions &amp; metric</span>
+          </button>
+          <button class="tool-card" type="button" role="radio" aria-checked="false" data-tool="caliper">
+            <span class="tool-icon" aria-hidden="true">◉</span><strong>Dial Caliper</strong><span>Beam + dial</span>
+          </button>
+          <button class="tool-card" type="button" role="radio" aria-checked="false" data-tool="framing">
+            <span class="tool-icon" aria-hidden="true">└</span><strong>Framing Square</strong><span>Square &amp; notch</span>
+          </button>
+          <button class="tool-card" type="button" role="radio" aria-checked="false" data-tool="speed">
+            <span class="tool-icon" aria-hidden="true">◢</span><strong>Speed Square</strong><span>90°, 45° &amp; pivot</span>
+          </button>
+        </div>
+      </section>
+
+      <section class="workbench" aria-labelledby="mode-heading">
+        <div class="workbench-bar">
+          <div>
+            <p class="eyebrow">STEP 2</p>
+            <h2 id="mode-heading">Choose a mode</h2>
+          </div>
+          <div class="setup-selects">
+            <label>Units / Track<select id="unit-select"></select></label>
+            <label>Difficulty<select id="difficulty-select"><option value="apprentice">Apprentice</option><option value="journey">Journey</option><option value="master">Master</option></select></label>
+          </div>
+        </div>
+
+        <div class="mode-tabs" role="tablist" aria-label="Activity mode">
+          <button id="tab-practice" type="button" role="tab" aria-selected="true" aria-controls="panel-practice" data-mode="practice">Practice Bench<span>Untimed · hints</span></button>
+          <button id="tab-challenge" type="button" role="tab" aria-selected="false" aria-controls="panel-challenge" tabindex="-1" data-mode="challenge">60-Second Challenge<span>Prepared setups</span></button>
+          <button id="tab-job" type="button" role="tab" aria-selected="false" aria-controls="panel-job" tabindex="-1" data-mode="job">Job Orders<span>Finish a shop task</span></button>
+        </div>
+
+        <section id="panel-practice" class="mode-panel" role="tabpanel" aria-labelledby="tab-practice">
+          <div class="panel-intro">
+            <div><p class="eyebrow">PRACTICE BENCH</p><h3 id="practice-title">Read the setup</h3><p id="practice-prompt">Loading a measurement setup…</p></div>
+            <label class="switch"><input id="hints-enabled" type="checkbox" checked><span>Hints on</span></label>
+          </div>
+          <div id="practice-stage" class="instrument-stage" aria-live="polite"></div>
+          <form id="practice-form" class="answer-panel" novalidate>
+            <div id="practice-answer"></div>
+            <div class="button-row">
+              <button class="button" type="submit">Check answer</button>
+              <button id="practice-hint" class="button button--secondary" type="button">Show hint</button>
+              <button id="practice-new" class="button button--quiet" type="button">New setup</button>
+            </div>
+          </form>
+          <div id="practice-feedback" class="feedback" role="status" aria-live="polite"></div>
+        </section>
+
+        <section id="panel-challenge" class="mode-panel" role="tabpanel" aria-labelledby="tab-challenge" hidden>
+          <div id="challenge-ready" class="challenge-ready">
+            <p class="eyebrow">FIXED DIFFICULTY · PREPARED SETUPS</p>
+            <h3>How many can you measure in 60 seconds?</h3>
+            <p>Each submitted setup counts as one attempt. Only a correct first answer earns a point. Your run keeps the selected tool, units, and difficulty.</p>
+            <div id="record-summary" class="record-summary">No record saved for this setup yet.</div>
+            <button id="challenge-start" class="button button--large" type="button">Start 60-second run</button>
+          </div>
+
+          <div id="challenge-running" hidden>
+            <div class="challenge-status">
+              <div><span>Time</span><output id="challenge-time" role="timer">1:00</output></div>
+              <div><span>Correct</span><output id="challenge-correct">0</output></div>
+              <div><span>Attempted</span><output id="challenge-attempted">0</output></div>
+              <div><span>Streak</span><output id="challenge-streak">0</output></div>
+            </div>
+            <div class="timer-track" aria-hidden="true"><span id="timer-fill"></span></div>
+            <div><p class="eyebrow">QUESTION <span id="challenge-number">1</span></p><h3 id="challenge-title">Read the setup</h3><p id="challenge-prompt"></p></div>
+            <div id="challenge-stage" class="instrument-stage"></div>
+            <form id="challenge-form" class="answer-panel" novalidate>
+              <div id="challenge-answer"></div>
+              <button class="button" type="submit">Submit &amp; next</button>
+            </form>
+            <p id="challenge-feedback" class="micro-feedback" role="status" aria-live="polite"></p>
+          </div>
+
+          <div id="challenge-results" class="results" tabindex="-1" hidden>
+            <p class="eyebrow">RUN COMPLETE</p><h3>Your results are locked in.</h3>
+            <div class="result-grid">
+              <div><span>Correct</span><strong id="result-correct">0</strong></div>
+              <div><span>Attempted</span><strong id="result-attempted">0</strong></div>
+              <div><span>Accuracy</span><strong id="result-accuracy">0%</strong></div>
+              <div><span>Best streak</span><strong id="result-streak">0</strong></div>
+            </div>
+            <p id="achievement-banner" class="achievement" hidden></p>
+            <p id="personal-best-message" class="record-summary"></p>
+            <details class="missed-review"><summary>Review missed questions (<span id="missed-count">0</span>)</summary><ol id="missed-list"></ol></details>
+            <section class="certificate-panel" aria-labelledby="certificate-heading">
+              <div><p class="eyebrow">COMPLETION CERTIFICATE</p><h4 id="certificate-heading">Put your name on this run</h4><p>Performance values come from the frozen results above.</p></div>
+              <label>Student name<input id="student-name" type="text" maxlength="80" autocomplete="name" placeholder="Enter student name"></label>
+              <div class="button-row">
+                <button id="certificate-download" class="button" type="button">Download Certificate (PDF)</button>
+                <button id="certificate-print" class="button button--secondary" type="button">Print certificate</button>
+              </div>
+              <p id="certificate-status" class="micro-feedback" role="status" aria-live="polite"></p>
+            </section>
+            <div class="button-row"><button id="challenge-replay" class="button" type="button">Replay same setup</button><button id="challenge-done" class="button button--quiet" type="button">Back to challenge</button></div>
+          </div>
+        </section>
+
+        <section id="panel-job" class="mode-panel" role="tabpanel" aria-labelledby="tab-job" hidden>
+          <div class="job-header"><div><p class="eyebrow">SHOP JOB</p><h3 id="job-title">Loading job order…</h3><p id="job-description"></p></div><span id="job-progress" class="job-progress">Step 1 of 3</span></div>
+          <ol id="job-step-list" class="job-step-list"></ol>
+          <div id="job-active">
+            <p id="job-prompt" class="job-prompt"></p>
+            <div id="job-stage" class="instrument-stage"></div>
+            <form id="job-form" class="answer-panel" novalidate><div id="job-answer"></div><button class="button" type="submit">Inspect this step</button></form>
+            <div id="job-feedback" class="feedback" role="status" aria-live="polite"></div>
+          </div>
+          <div id="job-complete" class="job-complete" hidden><span aria-hidden="true">✓</span><h3>Job order complete</h3><p id="job-complete-message"></p></div>
+          <div class="button-row"><button id="job-reset" class="button button--secondary" type="button">Restart job order</button></div>
+        </section>
+      </section>
+
+      <details class="help-panel">
+        <summary>Instructions, tool model &amp; accessibility</summary>
+        <div class="help-grid">
+          <section><h3>How to use Measure Up</h3><p>Choose a tool, units, difficulty, and mode. Enter a reading with the keyboard or use the large touch controls. Practice Bench can reveal a hint and visually marks the correct feature after a mistake. Timed runs use prepared setups and never change difficulty mid-run.</p></section>
+          <section><h3>Fractions</h3><p>Type a mixed number such as <strong>2 3/8</strong>, or use the fraction buttons. Equivalent fractions are accepted, so 2 6/16 is also correct. The metric track uses millimeters.</p></section>
+          <section><h3>Dial caliper assumption</h3><p>This first release models a 0–6 inch dial caliper with a 0.001 inch resolution, 0.100 inch per dial revolution, and 0.1 inch beam increments. Read the last exposed beam tenth, then add the dial thousandths. Digital and vernier models are reserved for future versions.</p></section>
+          <section><h3>Speed-square language</h3><p>The degree setting at the pivot is distinct from the angle of the marked line. Rise/run labels describe slope ratios; they are not degree readings. Advanced roof and stair layout is outside this first release.</p></section>
+          <section><h3>Saved on this browser</h3><p>Personal bests are saved only in the current browser/profile. No student account, shared leaderboard, or cloud database is used. Certificates are generated locally from the completed run.</p></section>
+          <section><h3>Keyboard &amp; touch</h3><p>All controls are keyboard reachable with visible focus. Answer fields submit with Enter, and buttons and inputs use large touch targets. Use the browser zoom controls if you need a larger view.</p></section>
+        </div>
+      </details>
+    </main>
+
+    <footer><span>CVS MEASURE UP · FIRST RELEASE</span><span>LOCAL RECORDS · BROWSER-GENERATED CERTIFICATES</span></footer>
+  </div>
+
+  <script src="./measure-model.js"></script>
+  <script src="./certificate.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>
