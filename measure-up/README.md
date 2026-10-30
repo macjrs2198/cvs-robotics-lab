@@ -16,7 +16,7 @@ All links and assets are relative so the app works under the repository path use
 - **Framing Square** — perpendicular lines, corner checks, and simple notch layout against a reference edge.
 - **Speed Square** — square lines, 45-degree lines, pivot/degree settings, and introductory rise/run recognition. The UI keeps degree setting, marked-line angle, and rise/run terminology distinct.
 
-**Practice Bench** is untimed and includes optional hints and visual correction. **60-Second Challenge** uses a prepared set at one fixed difficulty, stores browser-local personal bests, and offers a locally generated PDF or printable completion certificate. **Job Orders** connect several steps into one believable task for each tool.
+**Practice Bench** is untimed and includes optional hints and visual correction. **60-Second Challenge** keeps one fixed difficulty per run, draws numeric readings without replacement from broad prepared pools, starts ordinary Play Again runs with a fresh sequence, stores browser-local personal bests, and offers a locally generated PDF or printable completion certificate. Explicitly seeded model decks remain reproducible for tests and lesson preparation. **Job Orders** carry one coherent workpiece, reference edge, and feature model through all three steps; positioning controls move the same learner mark that is graded, and corrections show the learner and target marks together.
 
 Advanced roof/stair layout, digital/vernier calipers, student accounts, shared leaderboards, and a central database are outside this first release.
 
@@ -34,6 +34,6 @@ node measure-up/tests/certificate-tests.js
 node measure-up/tests/app-tests.js
 ```
 
-The automated tests cover measurement math and equivalent fractions, prepared question decks, first-attempt scoring and timer expiration, personal-best isolation, frozen certificate values, generated PDF/print content, relative navigation, and core accessibility hooks.
+The automated tests cover measurement math and equivalent fractions, at least 20 distinct numeric readings for every standard Tape and Caliper configuration, without-replacement cycling and seeded replay, varied Framing and Speed Square setups, first-attempt scoring and timer expiration, fresh ordinary replay seeds, coherent Job Order geometry and grading, personal-best isolation, frozen certificate values, generated PDF/print content, relative navigation, and core accessibility hooks.
 
 For this release, manual browser checks covered the desktop and a 768-pixel-wide layout, navigation from the hub, natural 60-second expiration, results and missed-question review, keyboard adjustment in a Tape Measure job order, PDF download, and certificate print preview. The narrow layout and control sizing were inspected for tablet use; a physical touchscreen was not part of that check.

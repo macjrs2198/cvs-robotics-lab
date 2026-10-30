@@ -337,38 +337,75 @@
     return deepFreeze({ task, degreeSetting, lineAngle, rise, run });
   }
 
+  function measurementSpecs(unit, values) {
+    return values.map((value) => [unit, value]);
+  }
+
   const PREPARED_VALUES = deepFreeze({
     tape: {
       apprentice: [
-        ["inch-fraction", 1.5], ["millimeter", 25], ["inch-fraction", 2.25], ["millimeter", 42],
-        ["inch-fraction", 3.75], ["millimeter", 68], ["inch-fraction", 5.125], ["millimeter", 93],
+        ...measurementSpecs("inch-fraction", [
+          1.5, 2.25, 3.75, 5.125, 0.125, 0.25, 0.375, 0.5,
+          0.625, 0.75, 0.875, 1.125, 1.75, 1.875, 2.5, 2.875,
+          3.125, 3.5, 4.125, 4.375, 4.75, 5.375, 5.625, 5.875,
+        ]),
+        ...measurementSpecs("millimeter", [
+          25, 42, 68, 93, 5, 8, 12, 14, 18, 31, 35, 37,
+          46, 49, 54, 57, 61, 73, 76, 79, 84, 88, 97, 99,
+        ]),
       ],
       journey: [
-        ["inch-fraction", 2.375], ["millimeter", 137], ["inch-fraction", 4.6875], ["millimeter", 246],
-        ["inch-fraction", 7.3125], ["millimeter", 319], ["inch-fraction", 9.5625], ["millimeter", 384],
+        ...measurementSpecs("inch-fraction", [
+          2.375, 4.6875, 7.3125, 9.5625, 0.9375, 1.1875, 1.8125, 2.0625,
+          2.9375, 3.4375, 3.8125, 4.125, 5.0625, 5.4375, 5.8125, 6.1875,
+          6.5625, 6.9375, 7.6875, 8.0625, 8.4375, 8.8125, 9.1875, 9.9375,
+        ]),
+        ...measurementSpecs("millimeter", [
+          137, 246, 319, 384, 17, 44, 58, 67, 83, 104, 119, 153,
+          168, 181, 205, 224, 259, 273, 298, 331, 346, 359, 373, 392,
+        ]),
       ],
       master: [
-        ["inch-fraction", 11.9375], ["millimeter", 487], ["inch-fraction", 18.4375], ["millimeter", 763],
-        ["inch-fraction", 23.8125], ["millimeter", 914], ["inch-fraction", 31.0625], ["millimeter", 1197],
+        ...measurementSpecs("inch-fraction", [
+          11.9375, 18.4375, 23.8125, 31.0625, 6.0625, 7.6875, 8.9375, 10.3125,
+          12.5625, 13.875, 15.1875, 16.625, 17.8125, 19.0625, 20.4375, 21.875,
+          24.1875, 25.5625, 26.9375, 28.3125, 29.6875, 30.1875, 30.8125, 31.8125,
+        ]),
+        ...measurementSpecs("millimeter", [
+          487, 763, 914, 1197, 112, 179, 245, 318, 399, 526, 574, 642,
+          688, 817, 845, 882, 967, 1008, 1049, 1087, 1129, 1163, 1181, 1200,
+        ]),
       ],
     },
     caliper: {
-      apprentice: [0.125, 0.48, 1.234, 1.507, 2.05, 2.675, 3.1, 3.842],
-      journey: [0.099, 1.019, 2.347, 3.682, 4.005, 4.919, 5.204, 5.555],
-      master: [0.001, 0.999, 2.999, 4.099, 5.009, 5.9, 5.999, 6],
+      apprentice: [
+        0.125, 0.48, 1.234, 1.507, 2.05, 2.675, 3.1, 3.842,
+        0.057, 0.212, 0.319, 0.666, 0.875, 1.019, 1.111, 1.895,
+        2.222, 2.409, 2.918, 3.003, 3.333, 3.509, 3.777, 3.999,
+      ],
+      journey: [
+        0.099, 1.019, 2.347, 3.682, 4.005, 4.919, 5.204, 5.555,
+        0.247, 0.731, 1.111, 1.568, 1.999, 2.014, 2.806, 3.141,
+        3.909, 4.126, 4.444, 4.783, 5.047, 5.318, 5.489, 5.601,
+      ],
+      master: [
+        0.001, 0.999, 2.999, 4.099, 5.009, 5.9, 5.999, 6,
+        0.047, 0.5, 1.001, 1.618, 2.001, 2.718, 3.001, 3.333,
+        3.999, 4.444, 4.997, 5.001, 5.123, 5.678, 5.888, 5.997,
+      ],
     },
     framing: {
       apprentice: [
-        ["perpendicular"], ["corner-check", true], ["notch", 1, 2.5, "inch-fraction"],
-        ["corner-check", false], ["notch", 25, 60, "millimeter"], ["perpendicular"],
+        ["perpendicular", 1], ["corner-check", true], ["notch", 1, 2.5, "inch-fraction"],
+        ["corner-check", false], ["notch", 25, 60, "millimeter"], ["perpendicular", 4],
       ],
       journey: [
-        ["notch", 1.375, 3.125, "inch-fraction"], ["corner-check", false], ["perpendicular"],
-        ["notch", 72, 119, "millimeter"], ["corner-check", true], ["notch", 4.0625, 5.6875, "inch-fraction"],
+        ["notch", 1.375, 3.125, "inch-fraction"], ["corner-check", false], ["perpendicular", 2],
+        ["notch", 72, 119, "millimeter"], ["corner-check", true], ["perpendicular", 6],
       ],
       master: [
         ["notch", 2.9375, 6.8125, "inch-fraction"], ["corner-check", true], ["notch", 113, 287, "millimeter"],
-        ["perpendicular"], ["corner-check", false], ["notch", 8.1875, 11.9375, "inch-fraction"],
+        ["perpendicular", 3], ["corner-check", false], ["perpendicular", 8],
       ],
     },
     speed: {
@@ -382,7 +419,7 @@
       ],
       master: [
         ["rise-run", "setting", 7, 12], ["rise-run", "line", 11, 12], ["pivot-angle", "line", 12.5],
-        ["pivot-angle", "setting", 63.5], ["rise-run", "ratio", 5, 12], ["rise-run", "line", 2.5, 12],
+        ["pivot-angle", "setting", 63.5], ["rise-run", "ratio", 5, 12], ["pivot-angle", "setting", 47.5],
       ],
     },
   });
@@ -454,11 +491,12 @@
     const [task] = spec;
     const id = `framing-${difficulty}-${index + 1}`;
     if (task === "perpendicular") {
+      const offset = Number(spec[1]) || 0;
       return commonQuestion(
         id, "framing", difficulty, "framing-perpendicular", "Mark a perpendicular line",
         "The square is seated against a straight reference edge. What line angle is marked from that edge?",
         "layout", "degrees", 90,
-        { task: "perpendicular", offset: 0, square: true, lineAngle: 90 },
+        { task: "perpendicular", offset, square: true, lineAngle: 90 },
         { type: "measurement", unit: "degrees", value: 90, tolerance: 0.1 },
         "A properly seated framing square makes a 90° line.",
         { min: 0, max: 90, step: 1 },
@@ -589,6 +627,59 @@
     return copy;
   }
 
+  function canonicalMeasurementKey(value, unit) {
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue)) return null;
+    if (unit === "inch-fraction") return `${unit}:${Math.round(numericValue * 16)}`;
+    if (unit === "millimeter") return `${unit}:${Math.round(numericValue)}`;
+    if (unit === "inch-decimal") return `${unit}:${Math.round(numericValue * 1000)}`;
+    return `${unit}:${numericValue}`;
+  }
+
+  function canonicalReadingKey(question) {
+    const value = question && question.answer && question.answer.value;
+    const unit = question && question.answer && question.answer.unit;
+    return canonicalMeasurementKey(value, unit);
+  }
+
+  function questionSetupKey(question) {
+    return JSON.stringify([
+      question.kind,
+      question.prompt,
+      question.track,
+      question.unit,
+      question.value,
+      question.setup,
+    ]);
+  }
+
+  function uniqueByKey(items, keyFor) {
+    const seen = new Set();
+    return items.filter((item) => {
+      const key = keyFor(item);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
+  function avoidAdjacentMatches(items, previousKey, keyFor) {
+    const ordered = items.slice();
+    let lastKey = previousKey;
+    for (let index = 0; index < ordered.length; index += 1) {
+      if (keyFor(ordered[index]) === lastKey) {
+        const swapIndex = ordered.findIndex((candidate, candidateIndex) => (
+          candidateIndex > index && keyFor(candidate) !== lastKey
+        ));
+        if (swapIndex !== -1) {
+          [ordered[index], ordered[swapIndex]] = [ordered[swapIndex], ordered[index]];
+        }
+      }
+      lastKey = keyFor(ordered[index]);
+    }
+    return ordered;
+  }
+
   function cloneQuestion(question, instance) {
     if (instance === 1) return question;
     return deepFreeze({ ...question, id: `${question.sourceId}-r${instance}` });
@@ -601,7 +692,13 @@
     if (!TOOLS[tool].unitIds.includes(selectedUnit)) {
       throw new RangeError(`${selectedUnit} is not an available track for ${tool}.`);
     }
-    const base = materializeBaseDeck(tool, difficulty).filter((question) => question.track === selectedUnit);
+    const numericReadings = tool === "tape" || tool === "caliper";
+    const keyFor = numericReadings ? canonicalReadingKey : questionSetupKey;
+    const matchingQuestions = materializeBaseDeck(tool, difficulty)
+      .filter((question) => question.track === selectedUnit);
+    // Numeric pools are canonicalized by the actual reading so equivalent
+    // representations cannot accidentally consume two without-replacement slots.
+    const base = numericReadings ? uniqueByKey(matchingQuestions, keyFor) : matchingQuestions;
     const numericCount = Number(options.count);
     const requestedCount = options.count == null
       ? base.length
@@ -612,12 +709,15 @@
     const random = seededRandom(options.seed);
     const deck = [];
     let round = 0;
+    let previousKey = null;
     while (deck.length < requestedCount) {
-      const ordered = hasSeed ? shuffled(base, random) : base;
+      const cycle = hasSeed ? shuffled(base, random) : base;
+      const ordered = avoidAdjacentMatches(cycle, previousKey, keyFor);
       round += 1;
       for (const question of ordered) {
         if (deck.length >= requestedCount) break;
         deck.push(cloneQuestion(question, round));
+        previousKey = keyFor(question);
       }
     }
     return Object.freeze(deck);
@@ -859,6 +959,7 @@
     parseDegrees,
     parseRatio,
     formatMeasurement,
+    canonicalMeasurementKey,
     caliperComponents,
     combineCaliperReading,
     speedSquareSetup,

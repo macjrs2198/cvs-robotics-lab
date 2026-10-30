@@ -90,6 +90,18 @@ test("timer display uses a conventional minute boundary", () => {
   assert.equal(app.formatClock(0), "0:00");
 });
 
+test("ordinary Play Again seeds are fresh while explicit seeds remain reproducible", () => {
+  assert.equal(app.nextChallengeSeed(100, 101), 101);
+  assert.equal(app.nextChallengeSeed(100, 100), 101, "same-tick replay advances instead of repeating the deck");
+  assert.equal(app.nextChallengeSeed(101, 100), 102, "a constant clock cannot cycle back to an older deck seed");
+
+  const source = fs.readFileSync(path.resolve(__dirname, "..", "app.js"), "utf8");
+  const page = fs.readFileSync(path.resolve(__dirname, "..", "index.html"), "utf8");
+  assert.doesNotMatch(source, /startChallenge\(challengeSeed\)/);
+  assert.match(source, /challenge-replay"\)\.addEventListener\("click", \(\) => startChallenge\(\)\)/);
+  assert.match(page, /id="challenge-replay"[^>]*>Play Again<\/button>/);
+});
+
 test("roving keyboard navigation wraps and supports Home and End", () => {
   assert.equal(app.keyboardIndex("ArrowRight", 3, 4), 0);
   assert.equal(app.keyboardIndex("ArrowDown", 1, 4), 2);
@@ -184,6 +196,162 @@ test("all four job orders contain three believable steps", () => {
     assert.ok(job.title.length > 5);
     assert.ok(job.description.length > 20);
     assert.ok(job.complete.length > 20);
+  }
+});
+
+test("all 15 supported job configurations use one immutable coherent workpiece", () => {
+  const configurations = [];
+  for (const difficulty of ["apprentice", "journey", "master"]) {
+    configurations.push(
+      ["tape", "inch-fraction", difficulty],
+      ["tape", "millimeter", difficulty],
+      ["caliper", "inch-decimal", difficulty],
+      ["framing", "layout", difficulty],
+      ["speed", "angles", difficulty],
+    );
+  }
+  assert.equal(configurations.length, 15);
+  for (const [tool, unit, difficulty] of configurations) {
+    const order = app.buildJobOrder(tool, unit, difficulty);
+    assert.equal(order.questions.length, 3, `${tool}/${unit}/${difficulty}`);
+    assert.ok(Object.isFrozen(order));
+    assert.ok(Object.isFrozen(order.workpiece));
+    assert.ok(order.questions.every((question) => question.job.workpiece === order.workpiece), "every step shares the exact workpiece model");
+    assert.ok(order.questions.every((question, index) => question.title === order.steps[index]));
+    assert.ok(order.workpiece.stock && order.workpiece.finished && order.workpiece.referenceEdges && order.workpiece.features);
+
+    const workpiece = order.workpiece;
+    if (tool === "tape") {
+      assert.ok(workpiece.features.fastenerCenter > 0);
+      assert.ok(workpiece.features.fastenerCenter < workpiece.finished.length);
+      assert.ok(workpiece.features.cutMark <= workpiece.finished.length);
+      assert.ok(workpiece.finished.length <= workpiece.stock.length);
+    } else if (tool === "caliper") {
+      assert.ok(workpiece.finished.length <= workpiece.stock.length);
+      assert.ok(workpiece.finished.diameter <= workpiece.stock.diameter);
+      assert.ok(workpiece.features.shoulderDiameter < workpiece.features.shaftDiameter);
+      for (const value of Object.values(workpiece.features)) assert.ok(value > 0 && value <= 6);
+    } else if (tool === "framing") {
+      assert.ok(workpiece.finished.width <= workpiece.stock.width);
+      assert.ok(workpiece.finished.height <= workpiece.stock.height);
+      assert.ok(workpiece.features.squareLine > 0 && workpiece.features.squareLine < workpiece.finished.width);
+      assert.ok(workpiece.features.notchStart < workpiece.features.notchEnd);
+      assert.ok(workpiece.features.notchEnd <= workpiece.finished.width);
+      assert.ok(workpiece.features.notchDepth > 0 && workpiece.features.notchDepth < workpiece.finished.height);
+    } else {
+      assert.ok(workpiece.finished.width <= workpiece.stock.width);
+      assert.ok(workpiece.finished.height <= workpiece.stock.height);
+      for (const feature of [workpiece.features.fortyFiveCut, workpiece.features.pivotLine]) {
+        for (const point of [feature.start, feature.end]) {
+          assert.ok(point.x >= 0 && point.x <= workpiece.finished.width);
+          assert.ok(point.y >= 0 && point.y <= workpiece.finished.height);
+        }
+      }
+      assert.equal(workpiece.features.pivotLine.degreeSetting + workpiece.features.pivotLine.lineAngle, 90);
+    }
+  }
+});
+
+test("job instructions, controls, geometry, and grading share the same target and reference", () => {
+  const configurations = [];
+  for (const difficulty of ["apprentice", "journey", "master"]) {
+    configurations.push(
+      ["tape", "inch-fraction", difficulty],
+      ["tape", "millimeter", difficulty],
+      ["caliper", "inch-decimal", difficulty],
+      ["framing", "layout", difficulty],
+      ["speed", "angles", difficulty],
+    );
+  }
+  for (const configuration of configurations) {
+    const order = app.buildJobOrder(...configuration);
+    for (const question of order.questions) {
+      const expected = model.formatExpected(question);
+      assert.equal(model.evaluateAnswer(question, expected).correct, true, `${question.id} rejects its displayed expected answer`);
+      if (question.answer.type === "choice") {
+        const wrong = question.answer.choices.find((choice) => choice !== question.answer.value);
+        assert.equal(model.evaluateAnswer(question, wrong).correct, false, `${question.id} accepts the opposite classification`);
+      }
+      const svg = app.renderInstrument(question);
+      assert.match(svg, new RegExp(`data-job-tool="${question.tool}"`));
+      assert.match(svg, new RegExp(`data-graded-value="${String(question.answer.value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`));
+      assert.match(svg.toLowerCase(), new RegExp(`data-reference="${question.job.step.reference.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`));
+      if (question.interaction === "position") {
+        assert.match(question.prompt, new RegExp(app.formatPositionValue(question, question.answer.value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+        assert.ok(question.prompt.toLowerCase().includes(question.job.step.reference.toLowerCase()));
+        assert.equal(app.jobActionLabel(question), "Check position");
+      } else {
+        assert.equal(app.jobActionLabel(question), "Check answer");
+      }
+    }
+  }
+});
+
+test("positioning jobs keep fraction output and show learner and correction marks together", () => {
+  assert.equal(app.formatPositionValue({ answer: { unit: "inch-fraction" } }, 5.125), "5 1/8 in");
+  const orders = [
+    app.buildJobOrder("tape", "inch-fraction", "apprentice"),
+    app.buildJobOrder("framing", "layout", "master"),
+    app.buildJobOrder("speed", "angles", "journey"),
+  ];
+  for (const order of orders) {
+    for (const question of order.questions.filter((entry) => entry.interaction === "position")) {
+      const learner = app.initialPositionValue(question);
+      assert.notEqual(learner, question.answer.value);
+      const svg = app.renderInstrument(question, { value: learner, correctValue: question.answer.value, reveal: true });
+      assert.match(svg, /data-mark-kind="learner"/);
+      assert.match(svg, /class="answer-mark"/);
+      assert.match(svg, /data-mark-kind="correct"/);
+      assert.match(svg, /class="correct-mark"/);
+      assert.equal(numericAttribute(svg, "data-correct-value"), question.answer.value);
+    }
+  }
+});
+
+test("job drawings expose the required workpiece features without duplicate ruler gradient ids", () => {
+  const tapeOrder = app.buildJobOrder("tape", "inch-fraction", "apprentice");
+  const tapeSvg = app.renderInstrument(tapeOrder.questions[1], { value: 1.25 });
+  assert.match(tapeSvg, /LEFT REFERENCE END/);
+  assert.match(tapeSvg, /FASTENER CENTER/);
+  assert.match(tapeSvg, /FINAL CUT MARK/);
+  assert.doesNotMatch(tapeSvg, /id="blade"|url\(#blade\)/);
+
+  const standardTape = model.createQuestionDeck({ tool: "tape", unit: "inch-fraction", difficulty: "apprentice", count: 1 })[0];
+  const before = app.renderInstrument(standardTape);
+  const after = app.renderInstrument(standardTape);
+  assert.match(before, /smallest mark = 1\/16 in/);
+  assert.match(after, /smallest mark = 1\/16 in/);
+  assert.doesNotMatch(before + after, /id="blade"|url\(#blade\)/);
+
+  assert.match(app.renderInstrument(app.buildJobOrder("caliper", "inch-decimal", "apprentice").questions[1]), /SPACER THICKNESS/);
+  assert.match(app.renderInstrument(app.buildJobOrder("framing", "layout", "journey").questions[2]), /NOTCH START/);
+  assert.match(app.renderInstrument(app.buildJobOrder("speed", "angles", "master").questions[2]), /LEFT PIVOT/);
+});
+
+test("wrong caliper feedback retains the prepared reading instead of redrawing the target", () => {
+  const question = app.buildJobOrder("caliper", "inch-decimal", "apprentice").questions[0];
+  const svg = app.renderInstrument(question, { value: 0.7, correctValue: question.answer.value, reveal: true });
+  assert.equal(numericAttribute(svg, "data-reading"), question.setup.reading);
+  assert.equal(numericAttribute(svg, "data-feature-value"), question.answer.value);
+});
+
+test("speed-square job drawings derive each marked line from the modeled feature coordinates", () => {
+  for (const difficulty of ["apprentice", "journey", "master"]) {
+    const order = app.buildJobOrder("speed", "angles", difficulty);
+    for (const question of order.questions) {
+      const feature = order.workpiece.features[question.job.step.feature];
+      const start = question.job.step.feature === "squareEnd" ? { x: feature.offset, y: 0 } : feature.start;
+      const end = question.job.step.feature === "squareEnd"
+        ? { x: feature.offset, y: order.workpiece.finished.height }
+        : feature.end;
+      const svg = app.renderInstrument(question);
+      assert.equal(numericAttribute(svg, "data-feature-start-x"), start.x);
+      assert.equal(numericAttribute(svg, "data-feature-start-y"), start.y);
+      assert.equal(numericAttribute(svg, "data-feature-target-end-x"), end.x);
+      assert.equal(numericAttribute(svg, "data-feature-target-end-y"), end.y);
+      assert.ok(Math.abs(numericAttribute(svg, "data-active-end-x") - end.x) < 1e-9);
+      assert.ok(Math.abs(numericAttribute(svg, "data-active-end-y") - end.y) < 1e-9);
+    }
   }
 });
 

@@ -163,6 +163,131 @@ function nearlyEqual(actual, expected, tolerance = 1e-9) {
 }
 
 {
+  assert.equal(
+    model.canonicalMeasurementKey(model.parseInchFraction("4 1/2"), "inch-fraction"),
+    model.canonicalMeasurementKey(4.5, "inch-fraction"),
+  );
+  assert.equal(
+    model.canonicalMeasurementKey(0.480, "inch-decimal"),
+    model.canonicalMeasurementKey(0.48, "inch-decimal"),
+  );
+  assert.notEqual(
+    model.canonicalMeasurementKey(25, "millimeter"),
+    model.canonicalMeasurementKey(25, "inch-decimal"),
+  );
+
+  const numericConfigurations = [
+    ["tape", "inch-fraction", "apprentice", 6],
+    ["tape", "inch-fraction", "journey", 10],
+    ["tape", "inch-fraction", "master", 32],
+    ["tape", "millimeter", "apprentice", 100],
+    ["tape", "millimeter", "journey", 400],
+    ["tape", "millimeter", "master", 1200],
+    ["caliper", "inch-decimal", "apprentice", 4],
+    ["caliper", "inch-decimal", "journey", 5.601],
+    ["caliper", "inch-decimal", "master", 6],
+  ];
+
+  for (const [tool, unit, difficulty, max] of numericConfigurations) {
+    const deck = model.createQuestionDeck({ tool, unit, difficulty, count: 20, seed: `twenty-${tool}-${unit}-${difficulty}` });
+    const canonical = deck.map((question) => model.canonicalMeasurementKey(question.value, question.unit));
+    assert.equal(new Set(canonical).size, 20, `${tool}/${unit}/${difficulty} should supply 20 actual readings`);
+    deck.forEach((question) => {
+      assert.ok(question.value >= 0 && question.value <= max, `${question.value} is outside ${difficulty} ${unit}`);
+      if (unit === "inch-fraction") {
+        assert.ok(Number.isInteger(question.value * 16), `${question.value} is not on a 1/16-inch tick`);
+        assert.equal(question.setup.sixteenths, Math.round(question.value * 16));
+      } else if (unit === "millimeter") {
+        assert.ok(Number.isInteger(question.value), `${question.value} is not on a 1 mm tick`);
+        assert.equal(question.setup.millimeters, question.value);
+      } else {
+        nearlyEqual(question.value * 1000, Math.round(question.value * 1000), 1e-9);
+        assert.equal(question.setup.reading, question.value);
+        assert.equal(
+          model.combineCaliperReading(question.setup.beamTenths, question.setup.dialThousandths),
+          question.value,
+        );
+      }
+    });
+  }
+  console.log("PASS: all nine numeric tracks provide 20 canonical-unique, in-range instrument readings");
+}
+
+{
+  const configurations = [
+    ["tape", "inch-fraction", "apprentice"],
+    ["tape", "inch-fraction", "journey"],
+    ["tape", "inch-fraction", "master"],
+    ["tape", "millimeter", "apprentice"],
+    ["tape", "millimeter", "journey"],
+    ["tape", "millimeter", "master"],
+    ["caliper", "inch-decimal", "apprentice"],
+    ["caliper", "inch-decimal", "journey"],
+    ["caliper", "inch-decimal", "master"],
+  ];
+  for (const [tool, unit, difficulty] of configurations) {
+    const options = { tool, unit, difficulty, count: 50, seed: `exhaust-${tool}-${unit}-${difficulty}` };
+    const deck = model.createQuestionDeck(options);
+    const replay = model.createQuestionDeck(options);
+    const readings = deck.map((question) => model.canonicalMeasurementKey(question.value, question.unit));
+    assert.equal(deck.length, 50);
+    assert.equal(new Set(deck.map((question) => question.id)).size, 50);
+    assert.equal(new Set(readings.slice(0, 24)).size, 24, "one pool cycle is sampled without replacement");
+    assert.ok(readings.slice(0, 24).includes(readings[24]), "the finite pool recycles after exhaustion");
+    assert.notEqual(readings[23], readings[24], "cycle boundary must not immediately repeat a reading");
+    assert.notEqual(readings[47], readings[48], "later cycle boundary must not immediately repeat a reading");
+    assert.deepEqual(
+      deck.map((question) => [question.sourceId, question.value]),
+      replay.map((question) => [question.sourceId, question.value]),
+      "an explicit seed must reproduce the complete sequence",
+    );
+  }
+
+  const largeDeck = model.createQuestionDeck({
+    tool: "caliper", unit: "inch-decimal", difficulty: "master", count: 2_000, seed: "finite-pool-stress",
+  });
+  assert.equal(largeDeck.length, 2_000, "finite-pool exhaustion completes without a generation loop");
+  const differentSeed = model.createQuestionDeck({
+    tool: "caliper", unit: "inch-decimal", difficulty: "master", count: 20, seed: "different-seed",
+  });
+  assert.notDeepEqual(
+    largeDeck.slice(0, 20).map((question) => question.value),
+    differentSeed.map((question) => question.value),
+  );
+  console.log("PASS: numeric pools recycle safely, avoid boundary repeats, and preserve explicit-seed replay");
+}
+
+{
+  for (const tool of ["framing", "speed"]) {
+    for (const difficulty of model.DIFFICULTIES) {
+      const unit = tool === "framing" ? "layout" : "angles";
+      const options = { tool, unit, difficulty, count: 120, seed: `fixed-${tool}-${difficulty}` };
+      const deck = model.createQuestionDeck(options);
+      const replay = model.createQuestionDeck(options);
+      const signature = (question) => JSON.stringify([
+        question.kind, question.prompt, question.value, question.setup,
+      ]);
+      for (let index = 1; index < deck.length; index += 1) {
+        assert.notEqual(signature(deck[index - 1]), signature(deck[index]), "fixed setup repeated consecutively");
+      }
+      assert.deepEqual(deck.map(signature), replay.map(signature));
+      assert.ok(new Set(deck.slice(0, 12).map(signature)).size >= 5, `${tool}/${difficulty} should vary its valid setups`);
+      const taskCounts = deck.reduce((counts, question) => {
+        counts[question.setup.task] = (counts[question.setup.task] || 0) + 1;
+        return counts;
+      }, {});
+      const counts = Object.values(taskCounts);
+      assert.ok(counts.length >= 2);
+      assert.ok(Math.max(...counts) <= Math.min(...counts) * 2, `${tool}/${difficulty} task mix should stay balanced`);
+      deck.forEach((question) => {
+        assert.equal(model.evaluateAnswer(question, model.formatExpected(question)).correct, true);
+      });
+    }
+  }
+  console.log("PASS: fixed-answer tracks vary valid setups, balance task types, and avoid identical neighbors");
+}
+
+{
   const tapeQuestion = model.createQuestionDeck({
     tool: "tape", unit: "inch-fraction", difficulty: "apprentice", count: 1,
   })[0];
